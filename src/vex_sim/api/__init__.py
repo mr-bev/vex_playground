@@ -7,6 +7,8 @@ phase 1 must keep working through phase 6.
 from __future__ import annotations
 
 from vex_sim.api._brain import Brain, Timer, Triport, sleep, wait
+from vex_sim.api._controller import Controller
+from vex_sim.api._drivetrain import DriveTrain, SmartDrive
 from vex_sim.api._enums import (
     BRAKE,
     COAST,
@@ -55,10 +57,21 @@ from vex_sim.api._enums import (
     VelocityUnits,
     VoltageUnits,
 )
+from vex_sim.api._motor import Motor, MotorGroup
+from vex_sim.api._sensors import Bumper, Distance, Inertial, Optical
 
 __all__ = [
     # Classes
     "Brain",
+    "Bumper",
+    "Controller",
+    "Distance",
+    "DriveTrain",
+    "Inertial",
+    "Motor",
+    "MotorGroup",
+    "Optical",
+    "SmartDrive",
     "Timer",
     "Triport",
     # Top-level fns
