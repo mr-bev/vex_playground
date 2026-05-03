@@ -83,6 +83,63 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include each playground's description in the output.",
     )
 
+    # ---- grade --------------------------------------------------------
+    grade_p = sub.add_parser(
+        "grade",
+        help=(
+            "Run many submissions against many scenarios in subprocesses, "
+            "writing a CSV/JSON results table."
+        ),
+    )
+    grade_p.add_argument(
+        "--submissions",
+        required=True,
+        type=Path,
+        help="Directory of student .py files (or a single .py file).",
+    )
+    grade_p.add_argument(
+        "--scenarios",
+        required=True,
+        type=Path,
+        help=(
+            "Directory of playground .json files (or a single .json file). "
+            "Pointing at src/vex_sim/playground_files runs every bundled scenario."
+        ),
+    )
+    grade_p.add_argument(
+        "--output",
+        required=True,
+        type=Path,
+        help="Output path. Extension picks the format: .csv (default) or .json.",
+    )
+    grade_p.add_argument(
+        "--timeout",
+        type=float,
+        default=60.0,
+        help="Wall-clock seconds per (submission, scenario) before the child is killed.",
+    )
+    grade_p.add_argument(
+        "--max-time",
+        type=float,
+        default=None,
+        help=(
+            "Simulated-time budget passed to each child. Defaults to the "
+            "scenario's time_limit, or 30 s if none is set."
+        ),
+    )
+    grade_p.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Run up to N (submission, scenario) pairs concurrently. Default: 1.",
+    )
+    grade_p.add_argument(
+        "--html",
+        type=Path,
+        default=None,
+        help="Also write a self-contained HTML matrix report at this path.",
+    )
+
     return parser
 
 
@@ -147,6 +204,58 @@ def _cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_grade(args: argparse.Namespace) -> int:
+    from vex_sim import grader  # noqa: PLC0415
+
+    submissions = grader.discover_submissions(args.submissions)
+    scenarios = grader.discover_scenarios(args.scenarios)
+
+    if not submissions:
+        sys.stderr.write(f"no submissions found under {args.submissions}\n")
+        return 2
+    if not scenarios:
+        sys.stderr.write(f"no scenarios found under {args.scenarios}\n")
+        return 2
+
+    sys.stderr.write(
+        f"grading {len(submissions)} submission(s) x {len(scenarios)} scenario(s) "
+        f"= {len(submissions) * len(scenarios)} run(s); "
+        f"timeout={args.timeout:.0f}s workers={args.workers}\n"
+    )
+
+    done = 0
+    total = len(submissions) * len(scenarios)
+
+    def progress(r: grader.GradeResult) -> None:
+        nonlocal done
+        done += 1
+        verdict = "PASS" if r.passed else r.status.upper()
+        sys.stderr.write(f"  [{done}/{total}] {r.submission}  {r.scenario}  {verdict}\n")
+
+    results = grader.grade(
+        submissions,
+        scenarios,
+        timeout=args.timeout,
+        max_time=args.max_time,
+        workers=args.workers,
+        progress=progress,
+    )
+
+    out_path: Path = args.output
+    suffix = out_path.suffix.lower()
+    if suffix == ".json":
+        grader.write_json(results, out_path)
+    else:
+        grader.write_csv(results, out_path)
+
+    if args.html is not None:
+        grader.write_html(results, args.html)
+
+    passed = sum(1 for r in results if r.passed)
+    sys.stderr.write(f"done: {passed}/{len(results)} pass -> {out_path}\n")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -154,6 +263,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_run(args)
     if args.command == "list":
         return _cmd_list(args)
+    if args.command == "grade":
+        return _cmd_grade(args)
     parser.print_help()
     return 0
 

@@ -102,11 +102,71 @@ Drop a `*.json` file into `src/vex_sim/playground_files/` and it is discovered a
 - `Optical(port).color()` — returns the colour of the floor region under the robot's centre, or `"black"` if there isn't one. Canonical colour names: `red`, `green`, `blue`, `yellow`, `orange`, `purple`, `cyan`, `white`, `black`.
 - Bumpers ignore wall heights (everything triggers them on contact, like in the real world).
 
+## Batch grading
+
+`python -m vex_sim grade` runs many submissions against many scenarios in
+subprocesses, with a wall-clock timeout per pair, and writes a results
+table.
+
+```bash
+uv run python -m vex_sim grade \
+    --submissions ./submissions/ \
+    --scenarios src/vex_sim/playground_files/ \
+    --output results.csv \
+    --timeout 60 \
+    --workers 4 \
+    --html results.html
+```
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--submissions PATH` | required | Directory of student `.py` files (or a single file). Files starting with `_` are skipped. |
+| `--scenarios PATH` | required | Directory of playground `.json` files (or a single file). The bundled `playground.schema.json` is excluded. |
+| `--output PATH` | required | Output path. `.json` extension picks JSON; anything else (typically `.csv`) picks CSV. |
+| `--timeout SEC` | `60` | Wall-clock budget per (submission, scenario). The child process is killed past this, and a `wall_timeout` row is written. |
+| `--max-time SEC` | scenario `time_limit`, else `30` | Simulated-time budget passed to each child. |
+| `--workers N` | `1` | Run up to N pairs concurrently (threaded subprocess fan-out). |
+| `--html PATH` | — | Also writes a self-contained HTML matrix report. |
+
+CSV columns: `submission, scenario, passed, status, reason, time_taken,
+distance_travelled_mm, collisions, sensor_reads, visited_zones,
+error_type, error_message, runtime_wall_seconds`. Status is one of
+`completed`, `timed_out`, `error` (from the simulator), or
+`wall_timeout` / `subprocess_crash` (from the harness when the child
+exceeds the wall budget or fails to emit JSON).
+
+Progress and the final summary go to stderr, so stdout stays empty for
+piping into other tooling.
+
+### Threat model — read this before grading untrusted code
+
+The subprocess boundary exists for **crash isolation**, not security.
+A submission that raises, hits a recursion limit, or runs an infinite
+loop will be killed without taking down the harness. That is all.
+
+The child process inherits the marker's user permissions, so a
+malicious submission can read or modify any file the marker can, open
+arbitrary network sockets, spawn shell commands, and fork further
+processes that may outlive the wall timeout.
+
+If you are grading code from people you do not trust, run the grader
+inside a real sandbox (container, throwaway VM, restricted user
+account). This project is not the right place to build that sandbox —
+it is a deliberate non-goal.
+
 ## Status
 
-**Phase 4 — playgrounds, scenario runner, wall heights, floor regions.** Walls now carry a height; `Distance` accepts a `mount_height` kwarg that gates which walls the ray-cast can see. Playgrounds are JSON files in `src/vex_sim/playground_files/`, validated against `playground.schema.json` on load. The scenario runner evaluates success criteria (`reach_zone`, `visit_sequence`, `time_limit`, `forbid_collisions`) and emits pass/fail plus metrics: time taken, distance travelled, collision count, sensor-read count, visited zones, final pose. The renderer colour-codes walls by height bucket and fills floor regions beneath them. All Phase 1–3 tests still pass.
+**Phase 5 — batch grading.** `python -m vex_sim grade --submissions
+DIR --scenarios DIR --output results.csv` runs every (submission,
+scenario) pair as a subprocess with a wall-clock timeout, isolating
+student crashes and infinite loops from the harness. Output is CSV
+(default) or JSON, with an optional HTML matrix report. Phase 4's
+playground / scenario / wall-height / floor-region machinery is
+unchanged. All 537 prior tests still pass.
 
-Out of scope until later phases: variable floor surfaces, slip / drift, sensor noise, optical mount-position offset, batch grading, 3D rendering, Webots backend.
+Out of scope until later phases: true security sandboxing, variable
+floor surfaces, slip / drift, sensor noise, optical mount-position
+offset, 3D rendering, Webots backend.
 
 ## Development
 
