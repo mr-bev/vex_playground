@@ -21,7 +21,6 @@ import random
 import runpy
 import sys
 import traceback
-from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +28,7 @@ from vex_sim import api
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
 from vex_sim.scheduler import SCHEDULER
+from vex_sim.stdout_capture import tee_stdout
 from vex_sim.world import WORLD, Playground
 
 _WINDOW_PX = 800
@@ -98,7 +98,7 @@ def _restore_shims(prior: tuple[Any, Any]) -> None:
 
 
 def _student_entrypoint(student_path: str | Path, captured: io.StringIO) -> None:
-    with redirect_stdout(captured):
+    with tee_stdout(captured):
         runpy.run_path(str(student_path), run_name="__main__")
 
 

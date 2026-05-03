@@ -33,7 +33,6 @@ import random
 import runpy
 import sys
 import traceback
-from contextlib import redirect_stdout
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -42,6 +41,7 @@ from vex_sim import api
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
 from vex_sim.scheduler import SCHEDULER
+from vex_sim.stdout_capture import tee_stdout
 from vex_sim.world import WORLD, Playground
 
 _STDOUT_CAP = 64 * 1024
@@ -79,12 +79,14 @@ def _restore_shims(prior: tuple[Any, Any]) -> None:
 def _student_entrypoint(student_path: str | Path, captured: io.StringIO) -> None:
     """Body of the student greenlet.
 
-    Run the student's source with stdout redirected to ``captured``. Any
-    exception (including :class:`SimulationTimeout`, raised when a wait
-    crosses ``max_time``) propagates out of the greenlet and is re-raised
-    in the main greenlet by :meth:`SCHEDULER.advance_to_next_wait`.
+    Run the student's source with stdout teed into ``captured`` while
+    the user-visible terminal still receives every print as it happens.
+    Any exception (including :class:`SimulationTimeout`, raised when a
+    wait crosses ``max_time``) propagates out of the greenlet and is
+    re-raised in the main greenlet by
+    :meth:`SCHEDULER.advance_to_next_wait`.
     """
-    with redirect_stdout(captured):
+    with tee_stdout(captured):
         runpy.run_path(str(student_path), run_name="__main__")
 
 
