@@ -135,8 +135,11 @@ def test_cli_run_subcommand_writes_json(tmp_path: Path):
     assert rc.returncode == 0
     assert out.exists()
     payload = json.loads(out.read_text(encoding="utf-8"))
+    # Phase 4: empty_room declares success criteria so the CLI emits a
+    # scenario result. The Phase 3 raw call-log is nested under "raw".
     assert payload["status"] == "timed_out"
-    assert "calls" in payload
+    assert payload["passed"] is False  # 1.5 s isn't enough to reach the goal
+    assert "calls" in payload["raw"]
 
 
 def test_cli_run_to_stdout_json(tmp_path: Path):
