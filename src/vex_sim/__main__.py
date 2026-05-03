@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from vex_sim import __version__, runner
+from vex_sim.playgrounds import EMPTY_ROOM, get_playground
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,17 +35,60 @@ def build_parser() -> argparse.ArgumentParser:
         default="-",
         help="Output path for the JSON result. '-' (default) writes to stdout.",
     )
+    mode = run_p.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--headless",
+        dest="render",
+        action="store_false",
+        help=(
+            "Run without a display (default). The call log and JSON result "
+            "are emitted exactly as before."
+        ),
+    )
+    mode.add_argument(
+        "--render",
+        dest="render",
+        action="store_true",
+        help="After the run, open a pygame window and play back the recorded trajectory.",
+    )
+    run_p.set_defaults(render=False)
+    run_p.add_argument(
+        "--playground",
+        default=EMPTY_ROOM.name,
+        help=f"Playground name. Default: {EMPTY_ROOM.name}.",
+    )
+    run_p.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="Playback speed multiplier for --render. Default: 1.0 (real-time).",
+    )
 
     return parser
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    result = runner.run(args.student_file, max_time=args.max_time)
+    playground = get_playground(args.playground)
+
+    if args.render:
+        # Lazy import so headless installations don't pull pygame.
+        from vex_sim import render
+
+        result = render.run_live(
+            args.student_file,
+            max_time=args.max_time,
+            playground=playground,
+            speed=args.speed,
+        )
+    else:
+        result = runner.run(args.student_file, max_time=args.max_time, playground=playground)
+
     out_text = json.dumps(result, indent=2)
     if args.out == "-":
         sys.stdout.write(out_text + "\n")
     else:
         Path(args.out).write_text(out_text, encoding="utf-8")
+
     return 1 if result["status"] == "error" else 0
 
 
