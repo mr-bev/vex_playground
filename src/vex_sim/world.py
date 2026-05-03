@@ -107,6 +107,31 @@ def integrate_pose(pose: Pose, linear_v: float, angular_v: float, dt: float) -> 
     )
 
 
+def point_segment_distance(
+    px: float, py: float, x1: float, y1: float, x2: float, y2: float
+) -> float:
+    """Shortest distance from point (px,py) to segment (x1,y1)-(x2,y2)."""
+    sx = x2 - x1
+    sy = y2 - y1
+    seg_len_sq = sx * sx + sy * sy
+    if seg_len_sq < 1e-12:
+        return math.hypot(px - x1, py - y1)
+    t = ((px - x1) * sx + (py - y1) * sy) / seg_len_sq
+    t = max(0.0, min(1.0, t))
+    cx = x1 + t * sx
+    cy = y1 + t * sy
+    return math.hypot(px - cx, py - cy)
+
+
+# Robot footprint (mm). Used for both collision and bumper geometry; kept
+# next to the pose-integration helpers so the world model owns the shape.
+ROBOT_RADIUS_MM = 160.0
+
+
+def _circle_hits_walls(x: float, y: float, walls: tuple[Wall, ...], radius: float) -> bool:
+    return any(point_segment_distance(x, y, w.x1, w.y1, w.x2, w.y2) < radius for w in walls)
+
+
 @dataclass
 class World:
     """Singleton 2D world. The runner resets it before every run."""
@@ -138,10 +163,50 @@ class World:
         self.set_velocity(0.0, 0.0)
 
     def integrate(self, dt: float) -> None:
-        """SIM_CLOCK advance listener: integrate pose using current velocities."""
+        """SIM_CLOCK advance listener: integrate pose using current velocities.
+
+        Wall collision policy (Phase 3, intentionally simple):
+
+        * Substep through ``dt`` so the robot can never translate more
+          than half its radius per integration step. This stops fast
+          motion (e.g. a 5 s drive_for resolved in one tick) from
+          tunnelling through a wall in a single jump.
+        * On each substep, tentatively integrate. If the resulting
+          centre lands within :data:`ROBOT_RADIUS_MM` of any wall, drop
+          the linear component for that substep. Angular motion is
+          always preserved -- the student can still rotate to escape.
+        * If even rotation-only still intersects (e.g. the robot
+          spawned partially clipping a wall), keep the new heading and
+          freeze position. No bounce, no slide -- those would surprise
+          students more than a hard stop does.
+        """
         if dt <= 0:
             return
-        self.pose = integrate_pose(self.pose, self.linear_v, self.angular_v, dt)
+        walls: tuple[Wall, ...] = self.playground.walls if self.playground is not None else ()
+        if not walls:
+            self.pose = integrate_pose(self.pose, self.linear_v, self.angular_v, dt)
+            return
+
+        # Substep so we can never advance the centre by more than 10 mm
+        # per step. The robot stops at most one substep short of the
+        # wall, which is below the visual resolution of the simulator
+        # (10 mm is roughly two pixels at typical zoom). Cheaper and
+        # simpler than a swept-circle collision check.
+        max_step_mm = 10.0
+        speed = abs(self.linear_v)
+        n = max(1, math.ceil(speed * dt / max_step_mm)) if speed > 1e-9 else 1
+        dt_sub = dt / n
+
+        for _ in range(n):
+            candidate = integrate_pose(self.pose, self.linear_v, self.angular_v, dt_sub)
+            if not _circle_hits_walls(candidate.x, candidate.y, walls, ROBOT_RADIUS_MM):
+                self.pose = candidate
+                continue
+            rot_only = integrate_pose(self.pose, 0.0, self.angular_v, dt_sub)
+            if _circle_hits_walls(rot_only.x, rot_only.y, walls, ROBOT_RADIUS_MM):
+                self.pose = Pose(self.pose.x, self.pose.y, rot_only.theta)
+            else:
+                self.pose = rot_only
 
     def finalize(self) -> None:
         """Close the current segment. Called once at run termination so the

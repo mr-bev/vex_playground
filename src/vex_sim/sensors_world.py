@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 
 from vex_sim.api._clock import SIM_CLOCK
 from vex_sim.api._enums import Color
-from vex_sim.world import WORLD, Wall
+from vex_sim.world import ROBOT_RADIUS_MM, WORLD, Wall, point_segment_distance
 
 # Distance sensor returns this when no wall is hit within the cone -- the
 # Phase 2 default. 1 m matches the VEX EXP distance sensor's "no object"
@@ -179,26 +179,11 @@ def _ray_min_distance_mm(ox: float, oy: float, theta: float, walls: tuple[Wall, 
     return best
 
 
-def _point_segment_distance(
-    px: float, py: float, x1: float, y1: float, x2: float, y2: float
-) -> float:
-    sx = x2 - x1
-    sy = y2 - y1
-    seg_len_sq = sx * sx + sy * sy
-    if seg_len_sq < 1e-12:
-        return math.hypot(px - x1, py - y1)
-    t = ((px - x1) * sx + (py - y1) * sy) / seg_len_sq
-    t = max(0.0, min(1.0, t))
-    cx = x1 + t * sx
-    cy = y1 + t * sy
-    return math.hypot(px - cx, py - cy)
-
-
 def _point_near_any_wall(
     px: float, py: float, walls: tuple[Wall, ...], proximity_mm: float
 ) -> bool:
     for w in walls:
-        if _point_segment_distance(px, py, w.x1, w.y1, w.x2, w.y2) <= proximity_mm:
+        if point_segment_distance(px, py, w.x1, w.y1, w.x2, w.y2) <= proximity_mm:
             return True
     return False
 
@@ -228,10 +213,6 @@ def _floor_color_at(x: float, y: float, regions) -> str:
 # -----------------------------------------------------------------------------
 # Bumper layout defaults
 # -----------------------------------------------------------------------------
-
-# Robot footprint half-extents (mm). Matches the rendered radius in
-# render.py so the visual and physics agree.
-ROBOT_RADIUS_MM = 160.0
 
 
 def default_bumper_offset(label: str) -> tuple[float, float]:

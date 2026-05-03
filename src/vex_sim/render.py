@@ -30,7 +30,7 @@ from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
 from vex_sim.scheduler import SCHEDULER
 from vex_sim.sensors_world import SENSOR_CACHE
 from vex_sim.stdout_capture import tee_stdout
-from vex_sim.world import WORLD, Playground
+from vex_sim.world import ROBOT_RADIUS_MM, WORLD, Playground
 
 _WINDOW_PX = 800
 _BG_COLOR = (24, 24, 28)
@@ -39,7 +39,6 @@ _GOAL_COLOR = (80, 180, 110)
 _ROBOT_COLOR = (240, 180, 70)
 _HEADING_COLOR = (255, 255, 255)
 _TEXT_COLOR = (200, 200, 210)
-_ROBOT_RADIUS_MM = 160.0
 _STDOUT_CAP = 64 * 1024
 
 
@@ -174,7 +173,7 @@ def run_live(
         font = pygame.font.SysFont(None, 20)
 
         to_screen, scale = _scale_factory(playground)
-        radius_px = max(4, int(_ROBOT_RADIUS_MM * scale))
+        radius_px = max(4, int(ROBOT_RADIUS_MM * scale))
 
         running = True
         while running:
@@ -225,8 +224,8 @@ def run_live(
             pose = WORLD.pose
             cx, cy = to_screen(pose.x, pose.y)
             pygame.draw.circle(screen, _ROBOT_COLOR, (cx, cy), radius_px)
-            hx = pose.x + _ROBOT_RADIUS_MM * 1.4 * math.cos(pose.theta)
-            hy = pose.y + _ROBOT_RADIUS_MM * 1.4 * math.sin(pose.theta)
+            hx = pose.x + ROBOT_RADIUS_MM * 1.4 * math.cos(pose.theta)
+            hy = pose.y + ROBOT_RADIUS_MM * 1.4 * math.sin(pose.theta)
             pygame.draw.line(screen, _HEADING_COLOR, (cx, cy), to_screen(hx, hy), 3)
 
             label_lines = [

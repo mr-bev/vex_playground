@@ -18,13 +18,11 @@ from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK
 from vex_sim.playgrounds import EMPTY_ROOM
 from vex_sim.sensors_world import (
-    ROBOT_RADIUS_MM,
     SENSOR_CACHE,
-    _point_segment_distance,
     _ray_segment_intersection_t,
     default_bumper_offset,
 )
-from vex_sim.world import WORLD, Pose, Wall
+from vex_sim.world import ROBOT_RADIUS_MM, WORLD, Pose, Wall, point_segment_distance
 
 
 @pytest.fixture(autouse=True)
@@ -72,14 +70,14 @@ def test_ray_parallel_to_segment_returns_none():
 
 
 def test_point_segment_distance_perpendicular_drop():
-    d = _point_segment_distance(50.0, 30.0, 0.0, 0.0, 100.0, 0.0)
+    d = point_segment_distance(50.0, 30.0, 0.0, 0.0, 100.0, 0.0)
     assert d == pytest.approx(30.0)
 
 
 def test_point_segment_distance_clamps_to_endpoint():
     # Foot of perpendicular falls past the end of the segment; distance
     # is to the nearest endpoint, not the infinite line.
-    d = _point_segment_distance(200.0, 0.0, 0.0, 0.0, 100.0, 0.0)
+    d = point_segment_distance(200.0, 0.0, 0.0, 0.0, 100.0, 0.0)
     assert d == pytest.approx(100.0)
 
 
