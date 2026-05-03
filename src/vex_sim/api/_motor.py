@@ -33,14 +33,17 @@ class Motor(_Recorder):
     def __init__(
         self,
         port: int,
-        gears_or_reverse: Any = GearSetting.RATIO_18_1,
+        gears: Any = GearSetting.RATIO_18_1,
         reverse: bool = False,
     ) -> None:
-        if isinstance(gears_or_reverse, bool):
+        # Real student code uses the 2-arg form Motor(port, False) where the
+        # second positional is `reverse`. Type-dispatch on `gears`: a bool
+        # there means the caller meant `reverse`.
+        if isinstance(gears, bool):
             self._gears = GearSetting.RATIO_18_1
-            self._reverse = gears_or_reverse
+            self._reverse = gears
         else:
-            self._gears = gears_or_reverse
+            self._gears = gears
             self._reverse = reverse
         self._port = port
         self._label = f"motor_port{port}"
