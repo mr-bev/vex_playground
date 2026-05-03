@@ -86,28 +86,14 @@ def test_point_segment_distance_clamps_to_endpoint():
 # -----------------------------------------------------------------------------
 
 
-def test_bumper_offset_front_letters():
-    fwd, left = default_bumper_offset("bumper_3wire_a")
-    assert fwd == ROBOT_RADIUS_MM
-    assert left == 0.0
-
-
-def test_bumper_offset_left_letters():
-    fwd, left = default_bumper_offset("bumper_3wire_d")
-    assert fwd == 0.0
-    assert left == ROBOT_RADIUS_MM
-
-
-def test_bumper_offset_right_letters():
-    fwd, left = default_bumper_offset("bumper_3wire_f")
-    assert fwd == 0.0
-    assert left == -ROBOT_RADIUS_MM
-
-
-def test_bumper_offset_rear_letters():
-    fwd, left = default_bumper_offset("bumper_3wire_g")
-    assert fwd == -ROBOT_RADIUS_MM
-    assert left == 0.0
+def test_default_bumper_offset_is_front_for_any_letter():
+    # All letters default to front-of-chassis; students wire bumpers to
+    # whichever 3-wire port is convenient, so the letter doesn't tell
+    # us which side the pad is on.
+    for letter in "abcdefgh":
+        fwd, left = default_bumper_offset(f"bumper_3wire_{letter}")
+        assert fwd == ROBOT_RADIUS_MM
+        assert left == 0.0
 
 
 # -----------------------------------------------------------------------------
@@ -127,6 +113,9 @@ def test_distance_in_empty_room_caps_at_max():
 
 def test_distance_reads_close_wall():
     # A narrow corridor: robot at (50, 50) facing +x; wall at x=250.
+    # The sensor reads from the front of the chassis (centre + radius
+    # along heading), so the reported distance is wall_x - centre_x -
+    # ROBOT_RADIUS_MM = 250 - 50 - 160 = 40 mm.
     walls = (Wall(250.0, -1000.0, 250.0, 1000.0),)
     WORLD.playground = type(EMPTY_ROOM)(
         name="probe",
@@ -140,8 +129,34 @@ def test_distance_reads_close_wall():
     SENSOR_CACHE.refresh()
     d = Distance(Ports.PORT1)
     SENSOR_CACHE.refresh()
-    assert d.object_distance() == pytest.approx(200.0)
+    assert d.object_distance() == pytest.approx(40.0)
     assert d.is_object_detected() is True
+
+
+def test_distance_origin_is_front_face_not_centre():
+    """The ray starts at the front of the chassis, not the centre.
+
+    A real VEX distance sensor sits on the chassis edge; placing the
+    ray origin there means a wall pressed against the chassis reads
+    ~0 mm rather than ROBOT_RADIUS_MM. Without this, student
+    thresholds like ``object_distance(MM) < 100`` could never fire.
+    """
+    walls = (Wall(500.0, -1000.0, 500.0, 1000.0),)
+    WORLD.playground = type(EMPTY_ROOM)(
+        name="probe",
+        width=1000.0,
+        height=1000.0,
+        walls=walls,
+        goal=None,
+        start_pose=Pose(0.0, 0.0, 0.0),
+    )
+    # Robot centre 500 mm from the wall, facing it. Front face is at
+    # 0 + ROBOT_RADIUS_MM = 160 mm, so the wall is 340 mm away from
+    # the sensor -- not 500 mm.
+    WORLD.pose = Pose(0.0, 0.0, 0.0)
+    d = Distance(Ports.PORT1)
+    SENSOR_CACHE.refresh()
+    assert d.object_distance() == pytest.approx(500.0 - ROBOT_RADIUS_MM)
 
 
 def test_distance_refreshes_after_motion():

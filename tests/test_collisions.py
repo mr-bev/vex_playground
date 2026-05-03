@@ -108,6 +108,26 @@ def test_no_collision_when_no_walls():
     assert WORLD.pose.x == pytest.approx(5000.0)
 
 
+def test_bumper_triggers_after_driving_into_wall():
+    """End-to-end: drive forward into a wall, both bumpers should fire."""
+    from vex_sim.api import Brain, Bumper
+    from vex_sim.sensors_world import SENSOR_CACHE
+
+    SENSOR_CACHE.reset()
+    WORLD.reset(_corridor(robot_x=500.0, wall_x=1000.0))
+    brain = Brain()
+    bumper_d = Bumper(brain.three_wire_port.d)
+    bumper_f = Bumper(brain.three_wire_port.f)
+    SENSOR_CACHE.refresh()
+    assert bumper_d.pressing() == 0
+    assert bumper_f.pressing() == 0
+
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 2000, MM, velocity=100)
+    assert bumper_d.pressing() == 1
+    assert bumper_f.pressing() == 1
+
+
 def test_distance_sensor_reports_close_wall_after_clamp():
     """Sensor cache reflects the post-clamp pose, not the would-have-been pose."""
     from vex_sim.api import Distance
@@ -119,6 +139,8 @@ def test_distance_sensor_reports_close_wall_after_clamp():
     distance = Distance(Ports.PORT1)
     dt = _make_drivetrain()
     dt.drive_for(FORWARD, 2000, MM, velocity=100)
-    # After driving into the wall, the centre is ROBOT_RADIUS_MM from
-    # the wall, so the distance reading is ~ROBOT_RADIUS_MM mm.
-    assert distance.object_distance() == pytest.approx(ROBOT_RADIUS_MM, abs=2.0)
+    # The sensor sits on the front face of the chassis, so when the
+    # robot is wedged against the wall it reads ~0 mm. (Substep
+    # granularity leaves a few mm of slack between the front face and
+    # the wall; tolerate up to one substep.)
+    assert distance.object_distance() == pytest.approx(0.0, abs=12.0)

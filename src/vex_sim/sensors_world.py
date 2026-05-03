@@ -11,9 +11,12 @@ tight ``while`` loops.
 Geometry
 --------
 
-Distance: ray from the robot's centre, along its heading, against every
-wall segment. Returns the minimum positive intersection in millimetres,
-clamped to a nominal max range.
+Distance: ray from the front face of the chassis (centre +
+ROBOT_RADIUS_MM along heading), against every wall segment. Returns
+the minimum positive intersection in millimetres, clamped to a nominal
+max range. Originating at the front -- not the centre -- means a wall
+pressed against the chassis reads ~0 mm, matching what a student sees
+from a real VEX distance sensor mounted on the robot's front edge.
 
 Bumper: a ring of contact points around the robot's circular footprint.
 A bumper presses when its mounting offset (in robot-local coordinates)
@@ -50,9 +53,10 @@ _BUMPER_PROXIMITY_MM = 10.0
 @dataclass
 class _DistanceProbe:
     label: str
-    # In Phase 3 every distance sensor sits at the robot centre and points
-    # along the robot's heading. Future phases may add per-sensor offset
-    # and bearing; the cache structure leaves room for that.
+    # In Phase 3 every distance sensor sits on the front face of the
+    # chassis and points along the robot's heading. Future phases may
+    # add per-sensor offset and bearing; the cache structure leaves
+    # room for that.
 
 
 @dataclass
@@ -114,8 +118,19 @@ class SensorCache:
         walls: tuple[Wall, ...] = playground.walls if playground is not None else ()
         pose = WORLD.pose
 
+        # Cast each distance ray from the *front face* of the chassis,
+        # not the centre. A real VEX distance sensor reports distance
+        # from its pad to the nearest object; mounting at the centre
+        # would mean the closest reading is ROBOT_RADIUS_MM (when
+        # crashed), and student thresholds like ``< 100`` would never
+        # fire. Originating at the front edge gives the same readings
+        # students see on a real robot.
+        cos_h = math.cos(pose.theta)
+        sin_h = math.sin(pose.theta)
+        front_x = pose.x + ROBOT_RADIUS_MM * cos_h
+        front_y = pose.y + ROBOT_RADIUS_MM * sin_h
         for d in self.distances:
-            self.distance_mm[d.label] = _ray_min_distance_mm(pose.x, pose.y, pose.theta, walls)
+            self.distance_mm[d.label] = _ray_min_distance_mm(front_x, front_y, pose.theta, walls)
 
         cos_t = math.cos(pose.theta)
         sin_t = math.sin(pose.theta)
@@ -216,27 +231,20 @@ def _floor_color_at(x: float, y: float, regions) -> str:
 
 
 def default_bumper_offset(label: str) -> tuple[float, float]:
-    """Map a bumper's port label to a sensible mounting offset.
+    """Default mounting offset (forward_mm, left_mm) for a bumper port.
 
-    Phase 3 supports the four ``brain.three_wire_port.<a-h>`` letters
-    students typically use:
+    Real VEX builds put bumpers wherever the wiring is convenient, so
+    the port letter doesn't reliably tell us which side of the chassis
+    a bumper is on. The vast majority of student programs treat
+    bumpers as "did I just hit something I was driving into" -- i.e.
+    front-mounted -- so every bumper defaults to the front of the
+    robot. Two bumpers on the same chassis both fire at once when the
+    robot drives into a wall, matching how students actually use the
+    pressing()-or-pressing() pattern.
 
-      * ``a``/``b`` -> front bumpers (forward = +ROBOT_RADIUS, left = 0)
-      * ``c``/``d`` -> left bumpers (forward = 0, left = +ROBOT_RADIUS)
-      * ``e``/``f`` -> right bumpers (forward = 0, left = -ROBOT_RADIUS)
-      * ``g``/``h`` -> rear bumpers (forward = -ROBOT_RADIUS, left = 0)
-
-    Anything else falls through to "front", which keeps the sample
-    student program working without forcing them to declare a layout.
+    Phase 3 keeps this fixed; later phases can add a per-bumper offset
+    argument if a scenario needs side or rear bumpers.
     """
-    if label.endswith(("_a", "_b")):
-        return (ROBOT_RADIUS_MM, 0.0)
-    if label.endswith(("_c", "_d")):
-        return (0.0, ROBOT_RADIUS_MM)
-    if label.endswith(("_e", "_f")):
-        return (0.0, -ROBOT_RADIUS_MM)
-    if label.endswith(("_g", "_h")):
-        return (-ROBOT_RADIUS_MM, 0.0)
     return (ROBOT_RADIUS_MM, 0.0)
 
 
