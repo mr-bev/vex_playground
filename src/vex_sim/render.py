@@ -32,16 +32,91 @@ from vex_sim.controller_input import CONTROLLER_INPUT, keyboard_to_axes_buttons
 from vex_sim.scheduler import SCHEDULER
 from vex_sim.sensors_world import SENSOR_CACHE
 from vex_sim.stdout_capture import tee_stdout
-from vex_sim.world import ROBOT_RADIUS_MM, WORLD, Playground
+from vex_sim.world import (
+    DEFAULT_WALL_HEIGHT_MM,
+    ROBOT_RADIUS_MM,
+    WALL_HEIGHT_PRESETS,
+    WORLD,
+    Playground,
+)
 
 _WINDOW_PX = 800
 _BG_COLOR = (24, 24, 28)
-_WALL_COLOR = (200, 200, 210)
+#: Pale grey / medium blue / dark blue for low / mid / tall walls.
+#: Continuous numeric heights snap to the nearest preset for rendering.
+_WALL_COLORS_BY_CATEGORY: dict[str, tuple[int, int, int]] = {
+    "low": (170, 170, 180),
+    "mid": (90, 130, 200),
+    "tall": (40, 70, 150),
+}
+#: Used when a wall's height matches no preset bucket (shouldn't happen
+#: after :func:`_wall_category` snapping but kept as a visible fallback).
+_WALL_COLOR_DEFAULT = (200, 200, 210)
 _GOAL_COLOR = (80, 180, 110)
 _ROBOT_COLOR = (240, 180, 70)
 _HEADING_COLOR = (255, 255, 255)
 _TEXT_COLOR = (200, 200, 210)
 _STDOUT_CAP = 64 * 1024
+
+
+def _wall_category(height_mm: float) -> str:
+    """Snap a numeric wall height to the nearest preset category name.
+
+    Used for picking a render colour. Continuous heights (anything not
+    exactly 30/100/200 mm) get the colour of the closest preset, so the
+    student still sees a clean three-tier visual even if a playground
+    file declares ``"height_mm": 75``.
+    """
+    closest = min(
+        WALL_HEIGHT_PRESETS.items(),
+        key=lambda item: abs(item[1] - height_mm),
+    )
+    return closest[0]
+
+
+def _wall_color(height_mm: float) -> tuple[int, int, int]:
+    return _WALL_COLORS_BY_CATEGORY.get(_wall_category(height_mm), _WALL_COLOR_DEFAULT)
+
+
+#: Display palette for floor regions. Names match
+#: :class:`vex_sim.api._enums.Color` values so a playground saying
+#: ``"color": "green"`` matches what the optical sensor returns.
+_FLOOR_PALETTE: dict[str, tuple[int, int, int]] = {
+    "red": (200, 80, 80),
+    "green": (80, 180, 110),
+    "blue": (90, 130, 200),
+    "yellow": (220, 200, 80),
+    "orange": (220, 140, 60),
+    "purple": (170, 90, 180),
+    "cyan": (90, 200, 200),
+    "white": (220, 220, 220),
+    "black": (40, 40, 40),
+    "transparent": None,  # type: ignore[dict-item]
+}
+
+
+def _floor_color(name: str) -> tuple[int, int, int] | None:
+    return _FLOOR_PALETTE.get(name.lower(), (140, 140, 140))
+
+
+def _draw_floor_regions(pygame, surface, playground: Playground, to_screen) -> None:
+    """Fill each floor region with its declared colour. Names show as labels."""
+    for region in getattr(playground, "floor_regions", ()):
+        color_name = getattr(region, "color", None)
+        if not color_name:
+            continue
+        rgb = _floor_color(color_name)
+        if rgb is None:
+            continue
+        bounds = getattr(region, "bounds", None)
+        points = getattr(region, "points", None)
+        if bounds is not None:
+            bx, by, bw, bh = bounds
+            x1, y1 = to_screen(bx, by + bh)
+            x2, y2 = to_screen(bx + bw, by)
+            pygame.draw.rect(surface, rgb, pygame.Rect(x1, y1, x2 - x1, y2 - y1))
+        elif points:
+            pygame.draw.polygon(surface, rgb, [to_screen(px, py) for px, py in points])
 
 
 def _import_pygame():
@@ -308,15 +383,20 @@ def run_live(
                 running = False
 
             screen.fill(_BG_COLOR)
+            # Floor regions go down first so walls and the goal outline
+            # draw over the top, mirroring how a top-down photograph of a
+            # real field shows: paint, then obstacles, then the robot.
+            _draw_floor_regions(pygame, screen, playground, to_screen)
             for w in playground.walls:
-                pygame.draw.line(
-                    screen, _WALL_COLOR, to_screen(w.x1, w.y1), to_screen(w.x2, w.y2), 3
-                )
+                color = _wall_color(getattr(w, "height_mm", DEFAULT_WALL_HEIGHT_MM))
+                pygame.draw.line(screen, color, to_screen(w.x1, w.y1), to_screen(w.x2, w.y2), 3)
             if playground.goal is not None:
                 g = playground.goal
                 gx1, gy1 = to_screen(g.x, g.y + g.h)
                 gx2, gy2 = to_screen(g.x + g.w, g.y)
-                pygame.draw.rect(screen, _GOAL_COLOR, pygame.Rect(gx1, gy1, gx2 - gx1, gy2 - gy1))
+                pygame.draw.rect(
+                    screen, _GOAL_COLOR, pygame.Rect(gx1, gy1, gx2 - gx1, gy2 - gy1), 2
+                )
 
             pose = WORLD.pose
             cx, cy = to_screen(pose.x, pose.y)
