@@ -53,6 +53,11 @@ _BUMPER_PROXIMITY_MM = 10.0
 @dataclass
 class _DistanceProbe:
     label: str
+    #: Sensor mount height above the floor in mm. Walls shorter than
+    #: this are filtered out before the ray-cast: a sensor mounted at
+    #: 100 mm cannot see a 30 mm "low" wall, exactly like a real VEX
+    #: distance sensor pointed straight forward over a low obstacle.
+    mount_height_mm: float = 100.0
     # In Phase 3 every distance sensor sits on the front face of the
     # chassis and points along the robot's heading. Future phases may
     # add per-sensor offset and bearing; the cache structure leaves
@@ -95,8 +100,8 @@ class SensorCache:
 
     # ---- Registration ------------------------------------------------
 
-    def register_distance(self, label: str) -> None:
-        self.distances.append(_DistanceProbe(label=label))
+    def register_distance(self, label: str, mount_height_mm: float = 100.0) -> None:
+        self.distances.append(_DistanceProbe(label=label, mount_height_mm=mount_height_mm))
         self.distance_mm[label] = _DISTANCE_MAX_MM
 
     def register_bumper(self, label: str, forward_mm: float, left_mm: float) -> None:
@@ -125,12 +130,21 @@ class SensorCache:
         # crashed), and student thresholds like ``< 100`` would never
         # fire. Originating at the front edge gives the same readings
         # students see on a real robot.
+        #
+        # Walls shorter than the sensor's mount_height are dropped from
+        # the candidate set before ray-casting -- a 30 mm "low" wall is
+        # invisible to a sensor mounted 100 mm up. This is the whole
+        # point of carrying wall heights in a 2D simulator: the lesson
+        # transfers to physical builds without any 3D rendering.
         cos_h = math.cos(pose.theta)
         sin_h = math.sin(pose.theta)
         front_x = pose.x + ROBOT_RADIUS_MM * cos_h
         front_y = pose.y + ROBOT_RADIUS_MM * sin_h
         for d in self.distances:
-            self.distance_mm[d.label] = _ray_min_distance_mm(front_x, front_y, pose.theta, walls)
+            visible = tuple(
+                w for w in walls if getattr(w, "height_mm", float("inf")) >= d.mount_height_mm
+            )
+            self.distance_mm[d.label] = _ray_min_distance_mm(front_x, front_y, pose.theta, visible)
 
         cos_t = math.cos(pose.theta)
         sin_t = math.sin(pose.theta)
@@ -206,21 +220,20 @@ def _point_near_any_wall(
 def _floor_color_at(x: float, y: float, regions) -> str:
     """Return the colour of the painted floor region at (x, y), or BLACK.
 
-    A region is any object with ``x``, ``y``, ``w``, ``h`` (axis-aligned
-    rectangle, anchored at the bottom-left corner) and a ``color`` string
-    that matches one of the :class:`Color` constants. Phase 3 uses this
-    for optional optical-sensor playgrounds; the default empty room has
-    no painted regions and the sensor reports BLACK.
+    Accepts the canonical :class:`vex_sim.world.FloorRegion` (which
+    knows about both rect and polygon shapes via its ``contains``
+    method) and the legacy duck-typed (x, y, w, h, color) record used
+    by some Phase 3 tests. First match in order wins, so playground
+    authors can layer a small marker zone on top of a wider start-zone
+    fill.
     """
+    from vex_sim.world import _region_contains  # noqa: PLC0415
+
     for r in regions:
-        rx = getattr(r, "x", None)
-        ry = getattr(r, "y", None)
-        rw = getattr(r, "w", None)
-        rh = getattr(r, "h", None)
         rc = getattr(r, "color", None)
-        if rx is None or ry is None or rw is None or rh is None or rc is None:
+        if not rc:
             continue
-        if rx <= x <= rx + rw and ry <= y <= ry + rh:
+        if _region_contains(r, x, y):
             return rc
     return Color.BLACK
 

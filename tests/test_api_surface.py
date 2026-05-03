@@ -159,7 +159,7 @@ CLASS_SIGNATURES: list[tuple[type, str, list[str]]] = [
         ["lm", "rm", "g", "wheelTravel", "trackWidth", "wheelBase", "units", "externalGearRatio"],
     ),
     # Distance
-    (Distance, "__init__", ["smartport"]),
+    (Distance, "__init__", ["smartport", "mount_height"]),
     (Distance, "object_distance", ["units"]),
     (Distance, "object_velocity", []),
     (Distance, "object_size", []),

@@ -27,11 +27,45 @@ def _mm_to_units(distance_mm: float, units: str) -> float:
 
 
 class Distance(_Recorder):
-    def __init__(self, smartport: int) -> None:
+    """Forward-facing distance sensor mounted on the robot's front face.
+
+    Parameters
+    ----------
+    smartport:
+        Smart-port index, like the real VEX EXP API.
+    mount_height:
+        Sensor mount height above the floor, in mm. Walls shorter than
+        this height are *invisible* to this sensor -- the ray-cast
+        filters them out before measuring. Defaults to 100 mm, which is
+        a typical chassis-mid mounting that sees mid- and tall-height
+        walls but skips the 30 mm "low" markers.
+
+    Mount-height interaction with wall heights
+    -----------------------------------------
+
+    The simulator is 2D but tracks wall heights so the classroom lesson
+    "your sensor can only see what its mount can reach" still applies::
+
+        # 30 mm wall, 100 mm sensor: the wall is below the beam line.
+        d = Distance(Ports.PORT1, mount_height=100)  # default
+        # Driving forward at this wall, d.object_distance() stays at the
+        # 1000 mm "no object" sentinel -- the bumper still triggers on
+        # contact, but the distance sensor never sees it coming.
+
+        # Same 30 mm wall, low-mounted sensor:
+        d_low = Distance(Ports.PORT1, mount_height=20)
+        # Now d_low.object_distance() decreases as the robot approaches.
+
+    Bumpers ignore height entirely -- they sit at floor level and fire
+    on every wall regardless of how short.
+    """
+
+    def __init__(self, smartport: int, mount_height: float = 100.0) -> None:
         self._port = smartport
+        self._mount_height_mm = float(mount_height)
         self._label = f"distance_port{smartport}"
-        SENSOR_CACHE.register_distance(self._label)
-        self._record("Distance", (smartport,))
+        SENSOR_CACHE.register_distance(self._label, self._mount_height_mm)
+        self._record("Distance", (smartport,), {"mount_height": self._mount_height_mm})
 
     def object_distance(self, units: str = DistanceUnits.MM) -> float:
         self._record("object_distance", (units,))
