@@ -27,6 +27,7 @@ from typing import Any
 from vex_sim import api
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
+from vex_sim.controller_input import CONTROLLER_INPUT, keyboard_to_axes_buttons
 from vex_sim.scheduler import SCHEDULER
 from vex_sim.sensors_world import SENSOR_CACHE
 from vex_sim.stdout_capture import tee_stdout
@@ -151,6 +152,7 @@ def run_live(
     SIM_CLOCK.set_max_time(max_time)
     CALL_LOG.clear()
     SENSOR_CACHE.reset()
+    CONTROLLER_INPUT.reset()
     if playground is None:
         from vex_sim.playgrounds import EMPTY_ROOM  # noqa: PLC0415
 
@@ -183,9 +185,16 @@ def run_live(
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT or (
-                    event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_q)
+                    event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
                 ):
                     running = False
+
+            # Drive the controller-input buffer from the keyboard. Held
+            # keys give VEX-style steady-state axis values; the student
+            # API reads from the same buffer.
+            axes, buttons = keyboard_to_axes_buttons(pygame)
+            CONTROLLER_INPUT.axes.update(axes)
+            CONTROLLER_INPUT.buttons.update(buttons)
 
             if not SCHEDULER.done:
                 try:

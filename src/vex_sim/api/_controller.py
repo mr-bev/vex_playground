@@ -1,17 +1,30 @@
+"""Controller API.
+
+Driver-control surface for the VEX EXP controller. In render mode the
+pygame loop populates :data:`CONTROLLER_INPUT` from keyboard events
+and these methods read live values; in headless mode the buffer stays
+zeroed, so every read is deterministic (axes return 0, buttons
+``False``). This is intentionally not used for assessment -- it exists
+so VEX programs with driver-control sections can be exercised
+visually.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
 
 from vex_sim.api._brain import _callback_name, _Recorder
+from vex_sim.controller_input import CONTROLLER_INPUT
 
 
 class _ControllerButton(_Recorder):
     def __init__(self, name: str) -> None:
+        self._name = name
         self._label = f"controller.{name}"
 
     def pressing(self) -> int:
         self._record("pressing")
-        return 0
+        return 1 if CONTROLLER_INPUT.button_pressing(self._name) else 0
 
     def pressed(self, callback: Callable, arg: tuple | None = None) -> None:
         self._record("pressed", (), {"callback": _callback_name(callback), "arg": arg})
@@ -22,11 +35,12 @@ class _ControllerButton(_Recorder):
 
 class _ControllerAxis(_Recorder):
     def __init__(self, name: str) -> None:
+        self._name = name
         self._label = f"controller.{name}"
 
     def position(self) -> int:
         self._record("position")
-        return 0
+        return CONTROLLER_INPUT.axis_position(self._name)
 
     def changed(self, callback: Callable, arg: tuple | None = None) -> None:
         self._record("changed", (), {"callback": _callback_name(callback), "arg": arg})
