@@ -45,6 +45,23 @@ A worked example lives in `examples/drive_square.py` — drives a 1 m square in 
 uv run python -m vex_sim run examples/drive_square.py --render
 ```
 
+`examples/drive_keyboard.py` is a driver-control demo. WASD steers the robot in render mode; in headless mode it sits still and quietly times out (controller axes are deterministic zero):
+
+```bash
+uv run python -m vex_sim run examples/drive_keyboard.py --render
+```
+
+### Render-mode controls
+
+| Key | Action |
+|---|---|
+| `space` | Toggle pause |
+| `→` | Single-step one frame (works while paused) |
+| `1` / `2` / `3` | Set sim speed to 0.5× / 1× / 2× |
+| `esc` | Quit |
+| `W` `A` `S` `D` / `↑↓←→` | Controller axes (right-stick / left-stick) |
+| `J K I , Q E U O Z X` | Controller buttons (A B Up Down L1 L2 R1 R2 L3 R3) |
+
 ### Flags
 
 | Flag | Default | Notes |
@@ -57,7 +74,9 @@ uv run python -m vex_sim run examples/drive_square.py --render
 
 ## Status
 
-**Phase 2 — minimal pygame runtime, live execution.** Differential-drive kinematics move the robot through a 2D world; `--render` opens a pygame window and animates the run as it happens. Student code runs on a greenlet driven by the simulator's main loop — single-threaded cooperative scheduling, no locks, debugger-friendly (see `vex_sim/scheduler.py` for the rationale). Sensors still return defaults; collision response and controller input land in later phases. Determinism and headless-first remain the load-bearing constraints.
+**Phase 3 — live execution, sensors, collisions, controller input.** Distance, Bumper, and Optical now read the world via a per-tick sensor cache (`vex_sim/sensors_world.py`); driving into a wall halts the robot at its chassis radius (rotation still allowed); the Controller API maps to pygame keyboard input in render mode and stays deterministically zeroed in headless mode. Render mode adds a HUD overlay (pose, sensors, brain.screen mirror) and playback controls (pause / single-step / speed). The greenlet-based scheduler from Phase 2 is unchanged — student programs from prior phases keep working without edits.
+
+Out of scope until later phases: multiple playgrounds, scenario success criteria, batch grading, 3D rendering, motor dynamics, sensor noise.
 
 ## Development
 
