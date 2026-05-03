@@ -14,24 +14,28 @@ from vex_sim.api._enums import (
     TurnType,
     VelocityUnits,
 )
+from vex_sim.sensors_world import (
+    SENSOR_CACHE,
+    default_bumper_offset,
+)
 
 
-def _distance_default(units: str) -> float:
-    """Default object distance is 1000 mm; convert if inches requested."""
+def _mm_to_units(distance_mm: float, units: str) -> float:
     if units in (DistanceUnits.IN, DistanceUnits.INCHES):
-        return 1000.0 / 25.4
-    return 1000.0
+        return distance_mm / 25.4
+    return distance_mm
 
 
 class Distance(_Recorder):
     def __init__(self, smartport: int) -> None:
         self._port = smartport
         self._label = f"distance_port{smartport}"
+        SENSOR_CACHE.register_distance(self._label)
         self._record("Distance", (smartport,))
 
     def object_distance(self, units: str = DistanceUnits.MM) -> float:
         self._record("object_distance", (units,))
-        return _distance_default(units)
+        return _mm_to_units(SENSOR_CACHE.distance_mm.get(self._label, 1000.0), units)
 
     def object_velocity(self) -> float:
         self._record("object_velocity")
@@ -43,7 +47,8 @@ class Distance(_Recorder):
 
     def is_object_detected(self) -> bool:
         self._record("is_object_detected")
-        return False
+        # Anything closer than the no-object sentinel counts as a detection.
+        return SENSOR_CACHE.distance_mm.get(self._label, 1000.0) < 1000.0
 
     def changed(self, callback: Callable, arg: tuple | None = None) -> None:
         self._record("changed", (), {"callback": _callback_name(callback), "arg": arg})
@@ -62,11 +67,13 @@ class Bumper(_Recorder):
             self._label = f"bumper_{source.replace('.', '_')}"
         else:
             self._label = f"bumper_{source or 'unknown'}"
+        forward, left = default_bumper_offset(self._label)
+        SENSOR_CACHE.register_bumper(self._label, forward, left)
         self._record("Bumper", (source,))
 
     def pressing(self) -> int:
         self._record("pressing")
-        return 0
+        return 1 if SENSOR_CACHE.bumper_pressed.get(self._label, False) else 0
 
     def pressed(self, callback: Callable, arg: tuple | None = None) -> None:
         self._record("pressed", (), {"callback": _callback_name(callback), "arg": arg})
@@ -149,6 +156,7 @@ class Optical(_Recorder):
     def __init__(self, smartport: int) -> None:
         self._port = smartport
         self._label = f"optical_port{smartport}"
+        SENSOR_CACHE.register_optical(self._label)
         self._record("Optical", (smartport,))
 
     def set_light(self, state: str) -> None:
@@ -163,7 +171,7 @@ class Optical(_Recorder):
 
     def color(self) -> str:
         self._record("color")
-        return Color.BLACK
+        return SENSOR_CACHE.optical_color.get(self._label, Color.BLACK)
 
     def brightness(self) -> int:
         self._record("brightness")

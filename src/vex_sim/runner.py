@@ -41,6 +41,7 @@ from vex_sim import api
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
 from vex_sim.scheduler import SCHEDULER
+from vex_sim.sensors_world import SENSOR_CACHE
 from vex_sim.stdout_capture import tee_stdout
 from vex_sim.world import WORLD, Playground
 
@@ -121,7 +122,9 @@ def run(
     SIM_CLOCK.reset()
     SIM_CLOCK.set_max_time(max_time)
     CALL_LOG.clear()
+    SENSOR_CACHE.reset()
     WORLD.reset(playground)
+    SENSOR_CACHE.refresh()
 
     prior_modules = _install_shims()
     captured = io.StringIO()
