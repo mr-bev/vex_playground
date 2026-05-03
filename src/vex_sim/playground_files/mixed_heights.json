@@ -1,0 +1,29 @@
+{
+  "name": "mixed_heights",
+  "description": "A 3 m room with a mix of LOW (30 mm), MID (100 mm), and TALL (200 mm) walls. There is a clear path through that requires reading distance against MID walls and using a bumper for LOW ones. A clever student picks mount_height around 50-80 mm to see MID and TALL but ignore the LOW markers cluttering the floor.",
+  "size": [3000, 3000],
+  "robot_start": [400, 400, 0],
+  "walls": [
+    {"start": [0, 0], "end": [3000, 0], "height": "tall"},
+    {"start": [3000, 0], "end": [3000, 3000], "height": "tall"},
+    {"start": [3000, 3000], "end": [0, 3000], "height": "tall"},
+    {"start": [0, 3000], "end": [0, 0], "height": "tall"},
+
+    {"start": [1000, 0], "end": [1000, 1200], "height": "mid"},
+    {"start": [2000, 1800], "end": [2000, 3000], "height": "mid"},
+
+    {"start": [600, 1800], "end": [1500, 1800], "height": "tall"},
+
+    {"start": [1200, 600], "end": [1800, 600], "height": "low"},
+    {"start": [2200, 1200], "end": [2700, 1200], "height": "low"},
+    {"start": [400, 2400], "end": [1100, 2400], "height": "low"}
+  ],
+  "floor_regions": [
+    {"name": "goal", "color": "green", "bounds": [2400, 2400, 500, 500]}
+  ],
+  "goal": {
+    "type": "reach_zone",
+    "zone": "goal",
+    "time_limit": 90
+  }
+}

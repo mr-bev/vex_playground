@@ -1,0 +1,26 @@
+{
+  "name": "low_wall_maze",
+  "description": "A 3 m room whose interior obstacles are mostly LOW walls (30 mm). A distance sensor mounted at the default 100 mm cannot see them and the robot will drive into the bumpers. Recommended student response: drop mount_height to <= 30 mm, OR rely on the bumpers. The lesson: 'where you mount the sensor decides what it can see'.",
+  "size": [3000, 3000],
+  "robot_start": [400, 400, 0],
+  "walls": [
+    {"start": [0, 0], "end": [3000, 0], "height": "tall"},
+    {"start": [3000, 0], "end": [3000, 3000], "height": "tall"},
+    {"start": [3000, 3000], "end": [0, 3000], "height": "tall"},
+    {"start": [0, 3000], "end": [0, 0], "height": "tall"},
+
+    {"start": [800, 0], "end": [800, 1500], "height": "low"},
+    {"start": [800, 1500], "end": [1800, 1500], "height": "low"},
+    {"start": [1800, 1500], "end": [1800, 600], "height": "low"},
+    {"start": [1800, 600], "end": [3000, 600], "height": "low"},
+    {"start": [1200, 2400], "end": [3000, 2400], "height": "low"}
+  ],
+  "floor_regions": [
+    {"name": "goal", "color": "green", "bounds": [2400, 2600, 500, 350]}
+  ],
+  "goal": {
+    "type": "reach_zone",
+    "zone": "goal",
+    "time_limit": 60
+  }
+}

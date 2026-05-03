@@ -1,0 +1,20 @@
+{
+  "name": "empty_room",
+  "description": "3 m square room, single goal zone in the top-right corner. All walls tall (200 mm). Sanity check for new student programs and for the simulator itself.",
+  "size": [3000, 3000],
+  "robot_start": [1500, 1500, 1.5707963267948966],
+  "walls": [
+    {"start": [0, 0], "end": [3000, 0], "height": "tall"},
+    {"start": [3000, 0], "end": [3000, 3000], "height": "tall"},
+    {"start": [3000, 3000], "end": [0, 3000], "height": "tall"},
+    {"start": [0, 3000], "end": [0, 0], "height": "tall"}
+  ],
+  "floor_regions": [
+    {"name": "goal", "color": "green", "bounds": [2400, 2400, 400, 400]}
+  ],
+  "goal": {
+    "type": "reach_zone",
+    "zone": "goal",
+    "time_limit": 30
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "pickup_and_dropoff",
+  "description": "Three coloured floor zones: GREEN (start), RED (pickup), BLUE (dropoff). The robot must visit them in order. Read the floor with an Optical sensor: optical.color() returns 'green'/'red'/'blue' depending on which zone the robot is over, and 'black' otherwise.",
+  "size": [3000, 3000],
+  "robot_start": [400, 400, 0],
+  "walls": [
+    {"start": [0, 0], "end": [3000, 0], "height": "tall"},
+    {"start": [3000, 0], "end": [3000, 3000], "height": "tall"},
+    {"start": [3000, 3000], "end": [0, 3000], "height": "tall"},
+    {"start": [0, 3000], "end": [0, 0], "height": "tall"}
+  ],
+  "floor_regions": [
+    {"name": "start", "color": "green", "bounds": [200, 200, 500, 500]},
+    {"name": "pickup", "color": "red", "bounds": [2200, 1200, 600, 600]},
+    {"name": "dropoff", "color": "blue", "bounds": [400, 2300, 600, 600]}
+  ],
+  "goal": {
+    "type": "visit_sequence",
+    "zones": ["start", "pickup", "dropoff"],
+    "time_limit": 90
+  }
+}

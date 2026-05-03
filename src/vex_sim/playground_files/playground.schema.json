@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vex_sim/playground.schema.json",
+  "title": "vex_sim playground",
+  "description": "A bounded 2D world (walls, painted floor regions, robot start pose) with optional success criteria for the scenario runner. Loaded by vex_sim.playground_loader.",
+  "type": "object",
+  "required": ["name", "size", "robot_start", "walls"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier; used by --playground on the CLI."
+    },
+    "description": {
+      "type": "string",
+      "description": "Free text shown in --list and embedded in scenario results. Use this to recommend a sensor mount_height for the playground."
+    },
+    "size": {
+      "type": "array",
+      "items": {"type": "number", "exclusiveMinimum": 0},
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[width_mm, height_mm] of the playground rectangle."
+    },
+    "robot_start": {
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "[x_mm, y_mm, theta_rad]. theta=pi/2 faces +y (up on screen)."
+    },
+    "walls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["start", "end"],
+        "additionalProperties": false,
+        "properties": {
+          "start": {
+            "type": "array",
+            "items": {"type": "number"},
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "end": {
+            "type": "array",
+            "items": {"type": "number"},
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "height": {
+            "oneOf": [
+              {"type": "string", "enum": ["low", "mid", "tall"]},
+              {"type": "number", "exclusiveMinimum": 0}
+            ],
+            "description": "Wall height in mm. 'low'=30, 'mid'=100, 'tall'=200. Default if omitted: 'tall'. Distance sensors only see walls where height >= sensor mount_height."
+          }
+        }
+      }
+    },
+    "floor_regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["color"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Names a zone for reach_zone / visit_sequence success criteria. Anonymous regions are visual / optical-sensor only."
+          },
+          "color": {
+            "type": "string",
+            "description": "Canonical names: red, green, blue, yellow, orange, purple, cyan, white, black."
+          },
+          "shape": {
+            "type": "string",
+            "enum": ["rect", "polygon"],
+            "description": "If omitted, inferred from whether 'bounds' or 'points' is set."
+          },
+          "bounds": {
+            "type": "array",
+            "items": {"type": "number"},
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "[x, y, w, h] in mm; bottom-left anchor."
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {"type": "number"},
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "minItems": 3,
+            "description": "Polygon vertices [[x,y], ...] in world coords."
+          }
+        }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Scenario success criteria, evaluated by the scenario runner.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["reach_zone", "visit_sequence"],
+          "description": "reach_zone: pass when robot enters 'zone'. visit_sequence: pass when robot enters every entry of 'zones' in order."
+        },
+        "zone": {"type": "string"},
+        "zones": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "time_limit": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Max simulated seconds. Run fails if the clock crosses this before the success rule is met."
+        },
+        "forbid_collisions": {
+          "type": "boolean",
+          "description": "If true, any wall collision fails the run. Default false."
+        }
+      }
+    }
+  }
+}
