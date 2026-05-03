@@ -7,9 +7,23 @@ The runner installs two synthetic modules into sys.modules:
   - `urandom` -- aliased to Python's stdlib `random`, so MicroPython-style
                  `import urandom; urandom.seed(...)` works on CPython.
 
-Time advances only via SIM_CLOCK; there are no real-time sleeps. A `while True:`
-loop terminates because wait()/motion methods raise SimulationTimeout when the
-clock crosses max_time.
+Execution model
+---------------
+
+The student program runs inside a greenlet managed by
+:mod:`vex_sim.scheduler`. Time-taking API calls (``wait``, ``drive_for``,
+``spin_for`` …) suspend the student greenlet on a deadline; the runner's
+main loop advances :data:`SIM_CLOCK` to that deadline and resumes the
+student. There is one OS thread, one Python frame stack active at a time.
+
+The headless runner here fast-forwards every wait — sim time skips
+straight to each deadline — so the observable behaviour is identical to
+a synchronous run. The render module shares the same scheduler but paces
+sim time against wall time so a human can watch the robot move.
+
+A ``while True:`` loop terminates because every iteration's wait crosses
+``max_time``, and :data:`SIM_CLOCK.advance` raises
+:class:`SimulationTimeout` when that happens.
 """
 
 from __future__ import annotations
@@ -27,6 +41,8 @@ from typing import Any
 from vex_sim import api
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
+from vex_sim.scheduler import SCHEDULER
+from vex_sim.world import WORLD, Playground
 
 _STDOUT_CAP = 64 * 1024
 
@@ -60,7 +76,36 @@ def _restore_shims(prior: tuple[Any, Any]) -> None:
         sys.modules["urandom"] = prior_urandom
 
 
-def run(student_path: str | Path, max_time: float = 30.0) -> dict[str, Any]:
+def _student_entrypoint(student_path: str | Path, captured: io.StringIO) -> None:
+    """Body of the student greenlet.
+
+    Run the student's source with stdout redirected to ``captured``. Any
+    exception (including :class:`SimulationTimeout`, raised when a wait
+    crosses ``max_time``) propagates out of the greenlet and is re-raised
+    in the main greenlet by :meth:`SCHEDULER.advance_to_next_wait`.
+    """
+    with redirect_stdout(captured):
+        runpy.run_path(str(student_path), run_name="__main__")
+
+
+def _drive_headless() -> None:
+    """Pump the scheduler in headless mode: fast-forward through every wait.
+
+    Each iteration resumes the student until its next wait, then advances
+    the clock straight to that deadline. SIM_CLOCK.advance raises
+    SimulationTimeout if the deadline is past ``max_time``; that
+    exception propagates out, the runner's outer try/except catches it.
+    """
+    while SCHEDULER.advance_to_next_wait():
+        dt = max(0.0, SCHEDULER.pending_deadline - SIM_CLOCK.now())
+        SIM_CLOCK.advance(dt)
+
+
+def run(
+    student_path: str | Path,
+    max_time: float = 30.0,
+    playground: Playground | None = None,
+) -> dict[str, Any]:
     """Execute the student program and return a structured result.
 
     Result keys:
@@ -74,15 +119,16 @@ def run(student_path: str | Path, max_time: float = 30.0) -> dict[str, Any]:
     SIM_CLOCK.reset()
     SIM_CLOCK.set_max_time(max_time)
     CALL_LOG.clear()
+    WORLD.reset(playground)
 
     prior_modules = _install_shims()
     captured = io.StringIO()
     status = "completed"
     error: dict[str, Any] | None = None
 
+    SCHEDULER.install(lambda: _student_entrypoint(student_path, captured))
     try:
-        with redirect_stdout(captured):
-            runpy.run_path(str(student_path), run_name="__main__")
+        _drive_headless()
     except SimulationTimeout:
         status = "timed_out"
     except SystemExit as e:
@@ -101,8 +147,10 @@ def run(student_path: str | Path, max_time: float = 30.0) -> dict[str, Any]:
             "traceback": traceback.format_exc(),
         }
     finally:
+        SCHEDULER.kill()
         _restore_shims(prior_modules)
         SIM_CLOCK.set_max_time(None)
+        WORLD.finalize()
 
     stdout_text = captured.getvalue()
     if len(stdout_text) > _STDOUT_CAP:

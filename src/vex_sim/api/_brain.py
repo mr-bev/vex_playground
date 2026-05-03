@@ -6,6 +6,7 @@ from typing import Any
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK
 from vex_sim.api._enums import TimeUnits, VoltageUnits
+from vex_sim.scheduler import SCHEDULER as _SCHEDULER
 
 
 def _callback_name(cb: Callable) -> str:
@@ -274,9 +275,9 @@ class Brain(_Recorder):
 
 def wait(time: float, units: str = TimeUnits.SEC) -> None:
     CALL_LOG.record("", "wait", (time, units))
-    SIM_CLOCK.advance(_to_seconds(time, units))
+    _SCHEDULER.yield_for(SIM_CLOCK.now() + _to_seconds(time, units))
 
 
 def sleep(time: float, units: str = TimeUnits.SEC) -> None:
     CALL_LOG.record("", "sleep", (time, units))
-    SIM_CLOCK.advance(_to_seconds(time, units))
+    _SCHEDULER.yield_for(SIM_CLOCK.now() + _to_seconds(time, units))

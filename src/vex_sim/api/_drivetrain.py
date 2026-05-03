@@ -1,20 +1,35 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from vex_sim.api._brain import _Recorder
 from vex_sim.api._clock import SIM_CLOCK
 from vex_sim.api._enums import (
     CurrentUnits,
+    DirectionType,
     DistanceUnits,
     PowerUnits,
     RotationUnits,
     TemperatureUnits,
     TimeUnits,
     TorqueUnits,
+    TurnType,
     VelocityUnits,
 )
 from vex_sim.api._motor import Motor
+from vex_sim.scheduler import SCHEDULER as _SCHEDULER
+
+# isort: split
+# vex_sim.world imports vex_sim.api._clock, and api/__init__.py imports this
+# module before world.py has finished defining WORLD. Held as a module
+# reference; dereference _world.WORLD on each call to avoid binding now.
+import vex_sim.world as _world
+
+# 100% velocity baselines for the simulated chassis. These set the shape of
+# the time domain (drive_for / turn_for durations) and the world kinematics.
+_MAX_LINEAR_MMPS = 200.0
+_MAX_ANGULAR_RADPS = math.radians(90.0)
 
 
 def _to_mm(distance: float, units: str) -> float:
@@ -28,7 +43,7 @@ def _drive_seconds(distance: float, units: str, velocity_pct: float) -> float:
     if velocity_pct <= 0:
         return 0.0
     mm = _to_mm(distance, units)
-    mm_per_sec = 200.0 * (velocity_pct / 100.0)
+    mm_per_sec = _MAX_LINEAR_MMPS * (velocity_pct / 100.0)
     return mm / mm_per_sec
 
 
@@ -39,6 +54,17 @@ def _turn_seconds(angle: float, units: str, velocity_pct: float) -> float:
     deg = float(angle) * 360.0 if units == RotationUnits.REV else float(angle)
     deg_per_sec = 90.0 * (velocity_pct / 100.0)
     return deg / deg_per_sec
+
+
+def _drive_velocity_mmps(direction: str, velocity_pct: float) -> float:
+    sign = -1.0 if direction == DirectionType.REVERSE else 1.0
+    return sign * _MAX_LINEAR_MMPS * (max(velocity_pct, 0.0) / 100.0)
+
+
+def _turn_velocity_radps(direction: str, velocity_pct: float) -> float:
+    # LEFT in VEX is CCW in math coords (theta increases).
+    sign = 1.0 if direction == TurnType.LEFT else -1.0
+    return sign * _MAX_ANGULAR_RADPS * (max(velocity_pct, 0.0) / 100.0)
 
 
 class DriveTrain(_Recorder):
@@ -72,6 +98,8 @@ class DriveTrain(_Recorder):
         self, direction: str, velocity: float | None = None, units: str = VelocityUnits.PERCENT
     ) -> None:
         self._record("drive", (direction, velocity, units))
+        v = self._drive_velocity if velocity is None else velocity
+        _world.WORLD.set_velocity(_drive_velocity_mmps(direction, v), 0.0)
 
     def drive_for(
         self,
@@ -85,12 +113,17 @@ class DriveTrain(_Recorder):
         v = self._drive_velocity if velocity is None else velocity
         self._record("drive_for", (direction, distance, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(_drive_seconds(distance, units, v))
+            duration = _drive_seconds(distance, units, v)
+            _world.WORLD.set_velocity(_drive_velocity_mmps(direction, v), 0.0)
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + duration)
+            _world.WORLD.stop()
 
     def turn(
         self, direction: str, velocity: float | None = None, units: str = VelocityUnits.PERCENT
     ) -> None:
         self._record("turn", (direction, velocity, units))
+        v = self._turn_velocity if velocity is None else velocity
+        _world.WORLD.set_velocity(0.0, _turn_velocity_radps(direction, v))
 
     def turn_for(
         self,
@@ -104,7 +137,10 @@ class DriveTrain(_Recorder):
         v = self._turn_velocity if velocity is None else velocity
         self._record("turn_for", (direction, angle, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(_turn_seconds(angle, units, v))
+            duration = _turn_seconds(angle, units, v)
+            _world.WORLD.set_velocity(0.0, _turn_velocity_radps(direction, v))
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + duration)
+            _world.WORLD.stop()
 
     def turn_to_heading(
         self,
@@ -117,7 +153,7 @@ class DriveTrain(_Recorder):
         v = self._turn_velocity if velocity is None else velocity
         self._record("turn_to_heading", (angle, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(1.0)
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + 1.0)
 
     def turn_to_rotation(
         self,
@@ -130,10 +166,11 @@ class DriveTrain(_Recorder):
         v = self._turn_velocity if velocity is None else velocity
         self._record("turn_to_rotation", (angle, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(1.0)
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + 1.0)
 
     def stop(self, mode: Any = None) -> None:
         self._record("stop", () if mode is None else (mode,))
+        _world.WORLD.stop()
 
     def calibrate_drivetrain(self) -> None:
         self._record("calibrate_drivetrain")

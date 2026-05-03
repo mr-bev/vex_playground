@@ -15,6 +15,7 @@ from vex_sim.api._enums import (
     TorqueUnits,
     VelocityUnits,
 )
+from vex_sim.scheduler import SCHEDULER as _SCHEDULER
 
 
 def _spin_seconds(amount: float, units: str, velocity_pct: float) -> float:
@@ -75,7 +76,7 @@ class Motor(_Recorder):
         v = self._velocity if velocity is None else velocity
         self._record("spin_for", (direction, angle, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(_spin_seconds(angle, units, v))
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + _spin_seconds(angle, units, v))
 
     def spin_to_position(
         self,
@@ -88,7 +89,7 @@ class Motor(_Recorder):
         v = self._velocity if velocity is None else velocity
         self._record("spin_to_position", (rotation, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(0.5)
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + 0.5)
 
     def stop(self, mode: str = BrakeType.BRAKE) -> None:
         self._record("stop", (mode,))
@@ -197,7 +198,7 @@ class MotorGroup(_Recorder):
         v = self._velocity if velocity is None else velocity
         self._record("spin_for", (direction, angle, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(_spin_seconds(angle, units, v))
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + _spin_seconds(angle, units, v))
 
     def spin_to_position(
         self,
@@ -210,7 +211,7 @@ class MotorGroup(_Recorder):
         v = self._velocity if velocity is None else velocity
         self._record("spin_to_position", (rotation, units, v, units_v, wait))
         if wait:
-            SIM_CLOCK.advance(0.5)
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + 0.5)
 
     def stop(self, mode: str = BrakeType.BRAKE) -> None:
         self._record("stop", (mode,))
