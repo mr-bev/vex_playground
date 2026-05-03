@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from vex_sim import api
+from vex_sim.api._brain import reset_latest_brain_screen
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
 from vex_sim.controller_input import CONTROLLER_INPUT, keyboard_to_axes_buttons
@@ -51,6 +52,70 @@ def _import_pygame():
             "pygame is required for --render mode. Install with: uv sync --extra render"
         ) from e
     return pygame
+
+
+def _brain_screen_lines() -> list[str]:
+    """Return the most recent brain.screen text buffer for HUD overlay."""
+    from vex_sim.api._brain import latest_brain_screen  # noqa: PLC0415
+
+    screen = latest_brain_screen()
+    return screen.text_lines() if screen is not None else []
+
+
+def _draw_hud(
+    surface,
+    font,
+    *,
+    pose,
+    status: str,
+    speed_multiplier: float,
+    paused: bool,
+    done: bool,
+    brain_screen_lines: list[str],
+) -> None:
+    """Top-of-window overlay: time, pose, sensors, controls hint.
+
+    Bottom-left corner: brain.screen mirror so a student's
+    ``brain.screen.print(...)`` shows up next to the simulator world.
+    """
+    from vex_sim.sensors_world import SENSOR_CACHE  # noqa: PLC0415
+
+    hud_lines = [
+        f"t = {SIM_CLOCK.now():6.2f} s   "
+        f"({pose.x:7.1f}, {pose.y:7.1f}) mm   "
+        f"{math.degrees(pose.theta):6.1f}°",
+        f"status: {status}"
+        + ("  (close window to exit)" if done or status != "completed" else "")
+        + (f"   PAUSED   {speed_multiplier:g}x" if paused else f"   {speed_multiplier:g}x"),
+    ]
+    if SENSOR_CACHE.distance_mm:
+        items = ", ".join(
+            f"{label}={mm:5.0f}mm" for label, mm in sorted(SENSOR_CACHE.distance_mm.items())
+        )
+        hud_lines.append(f"distance: {items}")
+    if SENSOR_CACHE.bumper_pressed:
+        items = ", ".join(
+            f"{label}={'1' if v else '0'}"
+            for label, v in sorted(SENSOR_CACHE.bumper_pressed.items())
+        )
+        hud_lines.append(f"bumper: {items}")
+    if SENSOR_CACHE.optical_color:
+        items = ", ".join(
+            f"{label}={color}" for label, color in sorted(SENSOR_CACHE.optical_color.items())
+        )
+        hud_lines.append(f"optical: {items}")
+    hud_lines.append("space=pause  →=step  1/2/3=0.5x/1x/2x  esc=quit")
+
+    for i, line in enumerate(hud_lines):
+        surface.blit(font.render(line, True, _TEXT_COLOR), (10, 10 + i * 18))
+
+    # Brain.screen mirror, bottom-left.
+    if brain_screen_lines:
+        y0 = _WINDOW_PX - 18 * (len(brain_screen_lines) + 1) - 8
+        title = font.render("brain.screen:", True, _TEXT_COLOR)
+        surface.blit(title, (10, y0))
+        for i, line in enumerate(brain_screen_lines):
+            surface.blit(font.render(line, True, _TEXT_COLOR), (10, y0 + 18 * (i + 1)))
 
 
 def _scale_factory(playground: Playground):
@@ -153,6 +218,7 @@ def run_live(
     CALL_LOG.clear()
     SENSOR_CACHE.reset()
     CONTROLLER_INPUT.reset()
+    reset_latest_brain_screen()
     if playground is None:
         from vex_sim.playgrounds import EMPTY_ROOM  # noqa: PLC0415
 
@@ -177,17 +243,36 @@ def run_live(
         to_screen, scale = _scale_factory(playground)
         radius_px = max(4, int(ROBOT_RADIUS_MM * scale))
 
+        # Playback state. ``speed_multiplier`` scales sim-time-per-frame
+        # (1x is real-time, 0.5x slow-mo, 2x fast-forward). ``paused``
+        # freezes the clock; ``step_once`` lets the user unfreeze for a
+        # single frame so they can inspect motion one tick at a time.
+        speed_multiplier = float(speed)
+        paused = False
+        step_once = False
+
         running = True
         while running:
             dt_ms = clock.tick(fps)
             dt_real = dt_ms / 1000.0
-            target_t = SIM_CLOCK.now() + dt_real * speed
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT or (
                     event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE
                 ):
                     running = False
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        paused = not paused
+                    elif event.key == pygame.K_RIGHT:
+                        # Single-step: advance one frame even if paused.
+                        step_once = True
+                    elif event.key == pygame.K_1:
+                        speed_multiplier = 0.5
+                    elif event.key == pygame.K_2:
+                        speed_multiplier = 1.0
+                    elif event.key == pygame.K_3:
+                        speed_multiplier = 2.0
 
             # Drive the controller-input buffer from the keyboard. Held
             # keys give VEX-style steady-state axis values; the student
@@ -196,7 +281,10 @@ def run_live(
             CONTROLLER_INPUT.axes.update(axes)
             CONTROLLER_INPUT.buttons.update(buttons)
 
-            if not SCHEDULER.done:
+            advance = (not paused) or step_once
+            step_once = False
+            if not SCHEDULER.done and advance:
+                target_t = SIM_CLOCK.now() + dt_real * speed_multiplier
                 try:
                     _advance_until(target_t)
                 except SimulationTimeout:
@@ -216,7 +304,7 @@ def run_live(
                         "message": str(e),
                         "traceback": traceback.format_exc(),
                     }
-            elif auto_close_on_complete:
+            elif SCHEDULER.done and auto_close_on_complete:
                 running = False
 
             screen.fill(_BG_COLOR)
@@ -237,15 +325,16 @@ def run_live(
             hy = pose.y + ROBOT_RADIUS_MM * 1.4 * math.sin(pose.theta)
             pygame.draw.line(screen, _HEADING_COLOR, (cx, cy), to_screen(hx, hy), 3)
 
-            label_lines = [
-                f"t = {SIM_CLOCK.now():6.2f} s   "
-                f"({pose.x:7.1f}, {pose.y:7.1f}) mm   "
-                f"{math.degrees(pose.theta):6.1f}°",
-                f"status: {status}"
-                + ("  (close window to exit)" if SCHEDULER.done or status != "completed" else ""),
-            ]
-            for i, line in enumerate(label_lines):
-                screen.blit(font.render(line, True, _TEXT_COLOR), (10, 10 + i * 18))
+            _draw_hud(
+                screen,
+                font,
+                pose=pose,
+                status=status,
+                speed_multiplier=speed_multiplier,
+                paused=paused,
+                done=SCHEDULER.done,
+                brain_screen_lines=_brain_screen_lines(),
+            )
 
             pygame.display.flip()
 

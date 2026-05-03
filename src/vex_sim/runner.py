@@ -38,6 +38,7 @@ from types import ModuleType
 from typing import Any
 
 from vex_sim import api
+from vex_sim.api._brain import reset_latest_brain_screen
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK, SimulationTimeout
 from vex_sim.controller_input import CONTROLLER_INPUT
@@ -125,6 +126,7 @@ def run(
     CALL_LOG.clear()
     SENSOR_CACHE.reset()
     CONTROLLER_INPUT.reset()
+    reset_latest_brain_screen()
     WORLD.reset(playground)
     SENSOR_CACHE.refresh()
 

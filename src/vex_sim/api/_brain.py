@@ -60,12 +60,34 @@ class _Button(_Recorder):
         self._record("released", (), {"callback": _callback_name(callback), "arg": arg})
 
 
+# Render mode reads the latest brain.screen text from this registry to
+# mirror it onto the pygame canvas. Set when a _Screen is constructed
+# (i.e. when the student creates a Brain), cleared by the runner when
+# a run starts. Headless callers can ignore this entirely.
+_LATEST_SCREEN: list[_Screen] = []
+
+
+def latest_brain_screen() -> _Screen | None:
+    return _LATEST_SCREEN[-1] if _LATEST_SCREEN else None
+
+
+def reset_latest_brain_screen() -> None:
+    _LATEST_SCREEN.clear()
+
+
 class _Screen(_Recorder):
     _label = "brain.screen"
+
+    # Maximum rows kept in the live text buffer. The real EXP brain
+    # screen is about 12 rows tall in the default font; render mode
+    # mirrors only what fits.
+    _MAX_ROWS = 12
 
     def __init__(self) -> None:
         self._row = 1
         self._column = 1
+        self._lines: dict[int, str] = {}
+        _LATEST_SCREEN.append(self)
 
     @staticmethod
     def _format_args(args: tuple[Any, ...], sep: str, precision: int) -> str:
@@ -80,6 +102,9 @@ class _Screen(_Recorder):
     def print(self, *args: Any, sep: str = "", precision: int = 2) -> None:
         text = self._format_args(args, sep, precision)
         self._record("print", (text,), {"sep": sep, "precision": precision})
+        existing = self._lines.get(self._row, "")
+        self._lines[self._row] = existing + text
+        self._column += len(text)
 
     def print_at(
         self,
@@ -106,6 +131,19 @@ class _Screen(_Recorder):
         self._record("clear_screen", (color,) if color is not None else ())
         self._row = 1
         self._column = 1
+        self._lines.clear()
+
+    def text_lines(self) -> list[str]:
+        """Return the current screen as a list of lines (oldest row first).
+
+        Used by the render module to mirror brain.screen onto the pygame
+        canvas. Rows beyond :attr:`_MAX_ROWS` are clipped so the HUD
+        never overflows the window.
+        """
+        if not self._lines:
+            return []
+        rows = sorted(r for r in self._lines if r <= self._MAX_ROWS)
+        return [self._lines[r] for r in rows]
 
     def clear_row(self, row: int | None = None, color: Any = None) -> None:
         kwargs: dict[str, Any] = {}
@@ -114,6 +152,8 @@ class _Screen(_Recorder):
         if color is not None:
             kwargs["color"] = color
         self._record("clear_row", (), kwargs)
+        target = row if row is not None else self._row
+        self._lines.pop(target, None)
 
     def row(self) -> int:
         self._record("row")
