@@ -12,8 +12,18 @@ Coordinate convention:
   - theta is in radians, with 0 along +x, increasing counter-clockwise.
   - VEX FORWARD moves along +heading; LEFT turns CCW (+theta).
 
-Phase 2 stays simple: instantaneous velocity changes, no acceleration,
-no slip, no collision response. Walls are stored for rendering only.
+2D-with-heights: the world is rendered top-down, but every wall has a
+``height_mm`` and every distance-sensor probe a ``mount_height_mm``.
+Walls below the sensor's mount height are filtered before the ray-cast
+runs, so a sensor mounted at 100 mm never "sees" a 30 mm low wall --
+even though the bumper at floor level still triggers on contact. This
+mirrors the real EXP failure mode where a high-mounted sensor lets the
+robot drive into low obstacles. The simulator preserves the lesson
+rather than abstracting it away.
+
+Phase 4 also tracks per-run metrics on the singleton World instance --
+``distance_travelled_mm``, ``collision_count``, ``visited_zones`` --
+which the scenario runner reads to evaluate success criteria.
 """
 
 from __future__ import annotations
@@ -34,12 +44,52 @@ class Pose:
         return Pose(self.x, self.y, self.theta)
 
 
+#: Named height presets for walls. Real EXP builds use chassis-height
+#: walls all over the place; these three buckets are enough to teach the
+#: lesson that "the distance sensor doesn't see what its mount can't see".
+WALL_HEIGHT_PRESETS: dict[str, float] = {
+    "low": 30.0,
+    "mid": 100.0,
+    "tall": 200.0,
+}
+
+#: Default wall height when none is specified -- a full-height wall that
+#: every reasonable distance-sensor mount will detect.
+DEFAULT_WALL_HEIGHT_MM: float = WALL_HEIGHT_PRESETS["tall"]
+
+
+def parse_wall_height(value: str | float | int | None) -> float:
+    """Resolve a wall height to millimetres.
+
+    ``None`` -> :data:`DEFAULT_WALL_HEIGHT_MM`.
+    A string -> looked up in :data:`WALL_HEIGHT_PRESETS` (case-insensitive).
+    A number -> taken as millimetres directly. Must be > 0.
+    """
+    if value is None:
+        return DEFAULT_WALL_HEIGHT_MM
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key not in WALL_HEIGHT_PRESETS:
+            known = ", ".join(sorted(WALL_HEIGHT_PRESETS))
+            raise ValueError(f"unknown wall-height preset {value!r}; known: {known}")
+        return WALL_HEIGHT_PRESETS[key]
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(f"wall height must be a number or preset name, got {type(value).__name__}")
+    if value <= 0:
+        raise ValueError(f"wall height must be positive, got {value}")
+    return float(value)
+
+
 @dataclass(frozen=True)
 class Wall:
     x1: float
     y1: float
     x2: float
     y2: float
+    #: Height in mm. Distance sensors only see walls where
+    #: ``height_mm >= sensor.mount_height``. Defaults to a full-height
+    #: wall so legacy two-arg construction keeps working.
+    height_mm: float = DEFAULT_WALL_HEIGHT_MM
 
 
 @dataclass(frozen=True)
@@ -52,6 +102,94 @@ class Goal:
     h: float
 
 
+def _point_in_polygon(x: float, y: float, points: tuple[tuple[float, float], ...]) -> bool:
+    """Even-odd ray-cast point-in-polygon test."""
+    n = len(points)
+    if n < 3:
+        return False
+    inside = False
+    j = n - 1
+    for i in range(n):
+        xi, yi = points[i]
+        xj, yj = points[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi + 1e-30) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _region_contains(region: object, x: float, y: float) -> bool:
+    """Inside-region test that tolerates the canonical FloorRegion *and*
+    the legacy duck-typed (x, y, w, h) record used by Phase 3 tests."""
+    contains = getattr(region, "contains", None)
+    if callable(contains):
+        return bool(contains(x, y))
+    rx = getattr(region, "x", None)
+    ry = getattr(region, "y", None)
+    rw = getattr(region, "w", None)
+    rh = getattr(region, "h", None)
+    if rx is None or ry is None or rw is None or rh is None:
+        return False
+    return rx <= x <= rx + rw and ry <= y <= ry + rh
+
+
+@dataclass(frozen=True)
+class FloorRegion:
+    """A coloured patch of floor.
+
+    Floor regions do not block motion, do not trigger bumpers, and are
+    invisible to the distance sensor. They exist for two reasons:
+
+    * Visual reference -- mark a start zone, drop zone, etc. in the
+      rendered view so students see what their program is meant to do.
+    * Optical sensor reads -- :class:`vex_sim.api._sensors.Optical` looks
+      down at the floor under the robot's centre and reports the colour
+      of the region it's standing on.
+
+    A region has either a rectangular ``bounds`` (x, y, w, h, anchored
+    at the bottom-left corner) or a polygon ``points`` (sequence of
+    (x, y) tuples in world coordinates). Exactly one must be set.
+    """
+
+    color: str
+    name: str | None = None
+    bounds: tuple[float, float, float, float] | None = None
+    points: tuple[tuple[float, float], ...] | None = None
+
+    def __post_init__(self) -> None:
+        if (self.bounds is None) == (self.points is None):
+            raise ValueError("FloorRegion needs exactly one of bounds= or points=")
+        if self.points is not None and len(self.points) < 3:
+            raise ValueError("polygon FloorRegion needs at least 3 points")
+
+    def contains(self, x: float, y: float) -> bool:
+        if self.bounds is not None:
+            bx, by, bw, bh = self.bounds
+            return bx <= x <= bx + bw and by <= y <= by + bh
+        return _point_in_polygon(x, y, self.points or ())
+
+
+@dataclass(frozen=True)
+class SuccessCriteria:
+    """Pass/fail rules evaluated by the scenario runner.
+
+    A criterion bundle is satisfied when every active rule passes:
+
+    * ``reach_zone`` -- robot's centre must enter the named region at
+      some point during the run.
+    * ``visit_sequence`` -- robot must enter each named region in the
+      listed order. Visiting an out-of-order zone in between is fine.
+    * ``time_limit`` -- max simulated seconds. Failure if exceeded.
+    * ``forbid_collisions`` -- if True, any wall collision fails the
+      run.
+    """
+
+    reach_zone: str | None = None
+    visit_sequence: tuple[str, ...] = ()
+    time_limit: float | None = None
+    forbid_collisions: bool = False
+
+
 @dataclass(frozen=True)
 class Playground:
     name: str
@@ -60,6 +198,9 @@ class Playground:
     walls: tuple[Wall, ...]
     goal: Goal | None
     start_pose: Pose
+    description: str = ""
+    floor_regions: tuple[FloorRegion, ...] = ()
+    success_criteria: SuccessCriteria | None = None
 
 
 @dataclass
@@ -141,8 +282,21 @@ class World:
     linear_v: float = 0.0
     angular_v: float = 0.0
     trajectory: list[TrajectorySegment] = field(default_factory=list)
+    #: Total Euclidean distance the robot's centre has moved since reset
+    #: (mm). Wall clamps don't add to this -- only actual motion. Read by
+    #: the scenario runner for metrics.
+    distance_travelled_mm: float = 0.0
+    #: Number of substeps in which the linear motion was clamped because
+    #: the candidate position would have intersected a wall. A single
+    #: ``drive_for`` into a wall typically registers many ticks; a clean
+    #: run reports zero.
+    collision_count: int = 0
+    #: Names of floor regions whose interior the robot's centre has
+    #: passed through, in entry order. Each name appears at most once.
+    visited_zones: list[str] = field(default_factory=list)
     _segment_start_time: float = 0.0
     _segment_start_pose: Pose = field(default_factory=Pose)
+    _last_zone: str | None = None
 
     def reset(self, playground: Playground | None = None) -> None:
         self.playground = playground
@@ -150,8 +304,15 @@ class World:
         self.linear_v = 0.0
         self.angular_v = 0.0
         self.trajectory = []
+        self.distance_travelled_mm = 0.0
+        self.collision_count = 0
+        self.visited_zones = []
         self._segment_start_time = SIM_CLOCK.now()
         self._segment_start_pose = self.pose.copy()
+        self._last_zone = None
+        # Robot may already be standing inside a zone at start_pose; pick
+        # that up immediately so visit_sequence checks see the start zone.
+        self._record_zone_at(self.pose.x, self.pose.y)
 
     def set_velocity(self, linear_mmps: float, angular_radps: float) -> None:
         """Change the robot's velocity vector, closing the previous segment."""
@@ -183,36 +344,67 @@ class World:
         if dt <= 0:
             return
         walls: tuple[Wall, ...] = self.playground.walls if self.playground is not None else ()
-        if not walls:
-            self.pose = integrate_pose(self.pose, self.linear_v, self.angular_v, dt)
-            return
 
-        # Substep so we can never advance the centre by more than 10 mm
-        # per step. The robot stops at most one substep short of the
-        # wall, which is below the visual resolution of the simulator
-        # (10 mm is roughly two pixels at typical zoom). Cheaper and
-        # simpler than a swept-circle collision check.
+        # Substep so we never advance the centre by more than 10 mm per
+        # step. Two reasons: (a) wall collision needs fine-grained
+        # checks so fast motion can't tunnel through a wall; (b) zone
+        # visit tracking needs to see intermediate positions, otherwise
+        # a long drive_for through a small zone would skip it entirely.
+        # 10 mm is below the visual resolution of the simulator (~ two
+        # pixels at typical zoom).
         max_step_mm = 10.0
         speed = abs(self.linear_v)
         n = max(1, math.ceil(speed * dt / max_step_mm)) if speed > 1e-9 else 1
         dt_sub = dt / n
 
         for _ in range(n):
+            prev_x, prev_y = self.pose.x, self.pose.y
             candidate = integrate_pose(self.pose, self.linear_v, self.angular_v, dt_sub)
-            if not _circle_hits_walls(candidate.x, candidate.y, walls, ROBOT_RADIUS_MM):
+            blocked = walls and _circle_hits_walls(candidate.x, candidate.y, walls, ROBOT_RADIUS_MM)
+            if not blocked:
                 self.pose = candidate
-                continue
-            rot_only = integrate_pose(self.pose, 0.0, self.angular_v, dt_sub)
-            if _circle_hits_walls(rot_only.x, rot_only.y, walls, ROBOT_RADIUS_MM):
-                self.pose = Pose(self.pose.x, self.pose.y, rot_only.theta)
             else:
-                self.pose = rot_only
+                self.collision_count += 1
+                rot_only = integrate_pose(self.pose, 0.0, self.angular_v, dt_sub)
+                if _circle_hits_walls(rot_only.x, rot_only.y, walls, ROBOT_RADIUS_MM):
+                    self.pose = Pose(self.pose.x, self.pose.y, rot_only.theta)
+                else:
+                    self.pose = rot_only
+            self.distance_travelled_mm += math.hypot(self.pose.x - prev_x, self.pose.y - prev_y)
+            self._record_zone_at(self.pose.x, self.pose.y)
 
     def finalize(self) -> None:
         """Close the current segment. Called once at run termination so the
         trajectory ends exactly at the final clock time, even if no further
         velocity change occurs after the last motion."""
         self._close_segment()
+
+    def _record_zone_at(self, x: float, y: float) -> None:
+        """Note transitions into named floor regions for visit tracking.
+
+        Re-entering the same zone after leaving it is allowed but only
+        the first entry is recorded -- ``visit_sequence`` checks treat
+        each zone as visit-once. Anonymous regions (no ``name``) are
+        ignored; they exist for visual or optical-sensor purposes only.
+        """
+        playground = self.playground
+        if playground is None:
+            return
+        current: str | None = None
+        for region in playground.floor_regions:
+            name = getattr(region, "name", None)
+            if not name:
+                continue
+            if _region_contains(region, x, y):
+                current = name
+                break
+        if current is None:
+            self._last_zone = None
+            return
+        if current != self._last_zone:
+            self._last_zone = current
+            if current not in self.visited_zones:
+                self.visited_zones.append(current)
 
     def _close_segment(self) -> None:
         now = SIM_CLOCK.now()
