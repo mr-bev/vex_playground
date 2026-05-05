@@ -9,7 +9,7 @@ authors = [{ name = "vex_sim contributors" }]
 dependencies = ["greenlet>=3.0"]
 
 [project.optional-dependencies]
-render = ["pygame>=2.5"]
+render = ["pygame-ce>=2.5"]
 
 [project.scripts]
 vex_sim = "vex_sim.__main__:main"

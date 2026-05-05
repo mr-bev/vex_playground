@@ -1,0 +1,31 @@
+{
+  "name": "warehouse",
+  "description": "1.8m x 1.8m arena with low (30mm) perimeter walls and a 150mm central wall extending 900mm from the middle of the left edge. Robot starts in the green top-left zone facing east; pickup is the red zone in the bottom-left. The central wall forces a route around its eastern end.",
+  "size": [1800, 1800],
+  "robot_start": [200, 1600, 0],
+  "walls": [
+    { "start": [0, 0],       "end": [1800, 0],    "height": "low" },
+    { "start": [1800, 0],    "end": [1800, 1800], "height": "low" },
+    { "start": [1800, 1800], "end": [0, 1800],    "height": "low" },
+    { "start": [0, 1800],    "end": [0, 0],       "height": "low" },
+    { "start": [0, 900],     "end": [900, 900],   "height": 150 }
+  ],
+  "floor_regions": [
+    {
+      "name": "start",
+      "color": "green",
+      "shape": "rect",
+      "bounds": [0, 1500, 300, 300]
+    },
+    {
+      "name": "pickup",
+      "color": "red",
+      "shape": "rect",
+      "bounds": [0, 0, 300, 300]
+    }
+  ],
+  "goal": {
+    "type": "reach_zone",
+    "zone": "pickup"
+  }
+}

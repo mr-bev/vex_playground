@@ -28,7 +28,7 @@ import vex_sim.world as _world
 
 # 100% velocity baselines for the simulated chassis. These set the shape of
 # the time domain (drive_for / turn_for durations) and the world kinematics.
-_MAX_LINEAR_MMPS = 200.0
+_MAX_LINEAR_MMPS = 600.0
 _MAX_ANGULAR_RADPS = math.radians(90.0)
 
 
