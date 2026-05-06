@@ -369,9 +369,19 @@ fi
 
 info "Installing vex_sim and its dependencies (this may take a minute)..."
 
-# --native-tls is passed explicitly (not just via UV_NATIVE_TLS env var) so
-# this works even in a sub-shell where the env var hasn't been picked up yet.
-if ! uv --native-tls sync --python "$PINNED_PYTHON_VERSION" --refresh-package vex_sim 2>&1; then
+# --native-tls       : explicit flag so we don't depend on UV_NATIVE_TLS being
+#                      live in this shell.
+# --refresh-package  : clear uv's HTTP/wheel cache for vex_sim so we actually
+#                      re-download the tarball instead of reusing a stale one.
+# --upgrade-package  : ignore whatever hash uv.lock has recorded for vex_sim
+#                      and re-resolve from scratch.  The main.tar.gz URL is
+#                      mutable (every commit to main produces a new tarball),
+#                      so without --upgrade-package we hit a hash mismatch on
+#                      the second run.
+if ! uv --native-tls sync \
+        --python "$PINNED_PYTHON_VERSION" \
+        --refresh-package vex_sim \
+        --upgrade-package vex_sim 2>&1; then
     error "uv sync failed.  Check the output above for details."
     echo ""
     echo "  Common causes:"
