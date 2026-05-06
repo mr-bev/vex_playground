@@ -84,12 +84,18 @@
 # vex_sim requires Python 3.10 or newer (see the project's pyproject.toml).
 PINNED_PYTHON_VERSION="3.13"
 
-# Where to fetch vex_sim from.  This is a GitHub-generated tarball URL that
-# always points at the latest commit on the chosen branch.
+# Where to fetch vex_sim from.  This points at a tagged release tarball,
+# which is IMMUTABLE — the contents (and therefore the hash) never change
+# for a given tag.  That means uv's lockfile stays valid across re-runs
+# and we don't need to force-refresh anything.
 #
-# To pin students to a specific tagged release instead of "always latest",
-# change "refs/heads/main" to "refs/tags/v0.1.0" (or whichever tag).
-VEX_SIM_TARBALL="https://github.com/mr-bev/vex_playground/archive/refs/heads/main.tar.gz"
+# To bump students to a newer release, just change the tag below.  To pull
+# whatever is on main instead (mutable, unstable), change to:
+#     https://github.com/mr-bev/vex_playground/archive/refs/heads/main.tar.gz
+# and add `--refresh-package vex_sim --upgrade-package vex_sim` to the
+# `uv sync` call further down so re-runs don't fail with hash mismatches.
+VEX_SIM_VERSION="v0.1.0"
+VEX_SIM_TARBALL="https://github.com/mr-bev/vex_playground/archive/refs/tags/${VEX_SIM_VERSION}.tar.gz"
 
 # The dependency line that goes into pyproject.toml.
 # "vex_sim[render]" requests the optional "render" extra so pygame-ce is
@@ -314,7 +320,16 @@ PYPROJECT_FILE="pyproject.toml"
 
 if [ -f "$PYPROJECT_FILE" ]; then
     info "${PYPROJECT_FILE} already exists — leaving it as-is."
-    info "  (If you want to start fresh, delete it and re-run this script.)"
+    # Warn if the existing pyproject is pinned to a different version of
+    # vex_sim than this script expects (e.g. an old script run pinned an
+    # older tag).  A re-run won't pick up the new version on its own; the
+    # student needs to wipe pyproject.toml + uv.lock to upgrade.
+    if ! grep -qF "${VEX_SIM_VERSION}.tar.gz" "$PYPROJECT_FILE" 2>/dev/null; then
+        warn "  Your ${PYPROJECT_FILE} is pinned to a different vex_sim version"
+        warn "  than this script (${VEX_SIM_VERSION}).  To upgrade, run:"
+        warn "      rm ${PYPROJECT_FILE} uv.lock"
+        warn "  then re-run this script."
+    fi
 else
     info "Writing ${PYPROJECT_FILE}..."
     cat > "$PYPROJECT_FILE" << PYPROJECT_EOF
@@ -367,21 +382,17 @@ if [ -d "$VENV_DIR" ]; then
     fi
 fi
 
-info "Installing vex_sim and its dependencies (this may take a minute)..."
+info "Installing vex_sim ${VEX_SIM_VERSION} and its dependencies (this may take a minute)..."
 
-# --native-tls       : explicit flag so we don't depend on UV_NATIVE_TLS being
-#                      live in this shell.
-# --refresh-package  : clear uv's HTTP/wheel cache for vex_sim so we actually
-#                      re-download the tarball instead of reusing a stale one.
-# --upgrade-package  : ignore whatever hash uv.lock has recorded for vex_sim
-#                      and re-resolve from scratch.  The main.tar.gz URL is
-#                      mutable (every commit to main produces a new tarball),
-#                      so without --upgrade-package we hit a hash mismatch on
-#                      the second run.
-if ! uv --native-tls sync \
-        --python "$PINNED_PYTHON_VERSION" \
-        --refresh-package vex_sim \
-        --upgrade-package vex_sim 2>&1; then
+# --native-tls : explicit flag so we don't depend on UV_NATIVE_TLS being
+#                live in this shell.
+#
+# We pin to a tagged release (see VEX_SIM_VERSION at the top of the
+# script), so the tarball is immutable.  That means re-running this
+# script is a fast no-op once everything is installed — uv compares the
+# locked hash, finds it matches, and does nothing.  No --refresh-package
+# / --upgrade-package needed.
+if ! uv --native-tls sync --python "$PINNED_PYTHON_VERSION" 2>&1; then
     error "uv sync failed.  Check the output above for details."
     echo ""
     echo "  Common causes:"
