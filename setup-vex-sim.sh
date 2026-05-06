@@ -193,10 +193,15 @@ fi
 # ---------------------------------------------------------------------------
 # We need to do two things:
 #   a) Export the variable RIGHT NOW so the rest of this script works.
-#   b) Add it to the student's shell profile so every future terminal has it.
+#      Every uv command in this script ALSO passes --native-tls explicitly
+#      as belt-and-braces, in case the env var is dropped for any reason.
+#   b) Add it to the student's shell profile so every future terminal has it
+#      (so commands like `uv run ...` work after this script finishes).
 #
-# We check common shell profile files and add the export to whichever one
-# exists.  If the line is already there, we skip it to avoid duplicates.
+# Step (b) needs to write to the profile that the student's actual login
+# shell will read.  Picking "the first file that exists" is wrong: on a
+# zsh user's machine, .bashrc may exist (left over from old setups) but
+# zsh will never read it.  Instead, we pick based on $SHELL.
 
 info "Configuring UV_NATIVE_TLS for the school firewall..."
 
@@ -204,20 +209,31 @@ info "Configuring UV_NATIVE_TLS for the school firewall..."
 export UV_NATIVE_TLS=1
 
 # (b) Persist it in the student's shell profile.
-#     We look for the first profile file that exists, in preference order.
-#     Most school Linux setups use bash, so ~/.bashrc is the most common.
+#     We pick the profile that matches the student's actual login shell.
+#       zsh    → ~/.zshrc
+#       bash   → ~/.bashrc on Linux, ~/.bash_profile on macOS
+#                (macOS bash login shells don't read .bashrc by default)
+#       other  → ~/.profile if present, else ~/.bashrc as a sensible default
 SHELL_PROFILE=""
-for candidate in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$HOME/.bash_profile"; do
-    if [ -f "$candidate" ]; then
-        SHELL_PROFILE="$candidate"
-        break
-    fi
-done
-
-# If none of the common files exist, default to creating ~/.bashrc.
-if [ -z "$SHELL_PROFILE" ]; then
-    SHELL_PROFILE="$HOME/.bashrc"
-fi
+case "$(basename "${SHELL:-/bin/bash}")" in
+    zsh)
+        SHELL_PROFILE="$HOME/.zshrc"
+        ;;
+    bash)
+        if [[ "$(uname)" == "Darwin" ]]; then
+            SHELL_PROFILE="$HOME/.bash_profile"
+        else
+            SHELL_PROFILE="$HOME/.bashrc"
+        fi
+        ;;
+    *)
+        if [ -f "$HOME/.profile" ]; then
+            SHELL_PROFILE="$HOME/.profile"
+        else
+            SHELL_PROFILE="$HOME/.bashrc"
+        fi
+        ;;
+esac
 
 # The exact line we want in the profile.
 UV_TLS_LINE='export UV_NATIVE_TLS=1  # Use system TLS certs (school firewall)'
@@ -268,7 +284,9 @@ fi
 
 info "Ensuring Python ${PINNED_PYTHON_VERSION} is available..."
 
-if ! uv python install "$PINNED_PYTHON_VERSION" 2>&1; then
+# --native-tls is passed explicitly (not just via UV_NATIVE_TLS env var) so
+# this works even in a sub-shell where the env var hasn't been picked up yet.
+if ! uv --native-tls python install "$PINNED_PYTHON_VERSION" 2>&1; then
     error "Failed to install Python ${PINNED_PYTHON_VERSION} via uv."
     echo ""
     echo "  Check your internet connection and try again."
@@ -351,7 +369,9 @@ fi
 
 info "Installing vex_sim and its dependencies (this may take a minute)..."
 
-if ! uv sync --python "$PINNED_PYTHON_VERSION" --refresh-package vex_sim 2>&1; then
+# --native-tls is passed explicitly (not just via UV_NATIVE_TLS env var) so
+# this works even in a sub-shell where the env var hasn't been picked up yet.
+if ! uv --native-tls sync --python "$PINNED_PYTHON_VERSION" --refresh-package vex_sim 2>&1; then
     error "uv sync failed.  Check the output above for details."
     echo ""
     echo "  Common causes:"
