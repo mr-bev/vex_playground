@@ -17,6 +17,7 @@ import pytest
 
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK
+from vex_sim.api._drivetrain import _MAX_LINEAR_MMPS
 from vex_sim.playgrounds import EMPTY_ROOM
 from vex_sim.render import _advance_until, _scale_factory
 from vex_sim.scheduler import SCHEDULER
@@ -126,5 +127,5 @@ def test_run_live_completes_short_program(tmp_path: Path, monkeypatch):
         auto_close_on_complete=True,
     )
     assert result["status"] == "completed"
-    # 100 mm at 200 mm/s = 0.5 s of sim time.
-    assert result["elapsed_sim_time"] == pytest.approx(0.5, abs=0.05)
+    # 100 mm at 100% velocity = 100 / (100% speed) seconds of sim time.
+    assert result["elapsed_sim_time"] == pytest.approx(100 / _MAX_LINEAR_MMPS, abs=0.05)

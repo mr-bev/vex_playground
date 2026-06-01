@@ -15,7 +15,7 @@ from vex_sim.api import (
 )
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK
-from vex_sim.api._drivetrain import DriveTrain, SmartDrive
+from vex_sim.api._drivetrain import _MAX_LINEAR_MMPS, DriveTrain, SmartDrive
 from vex_sim.api._motor import Motor
 
 
@@ -68,23 +68,23 @@ def test_drive_does_not_advance_clock():
 
 def test_drive_for_advances_clock_based_on_distance():
     dt = _make_drivetrain()
-    # 200 mm at 100% (200 mm/s) = 1s
+    # 200 mm at 100% takes 200 / (100% speed) seconds.
     dt.drive_for(FORWARD, 200, MM, velocity=100)
-    assert SIM_CLOCK.now() == pytest.approx(1.0)
+    assert SIM_CLOCK.now() == pytest.approx(200 / _MAX_LINEAR_MMPS)
 
 
 def test_drive_for_default_velocity_is_50_pct():
     dt = _make_drivetrain()
-    # 200 mm at 50% (100 mm/s) = 2s
+    # Default velocity is 50%, i.e. half speed -> twice as long as 100%.
     dt.drive_for(FORWARD, 200, MM)
-    assert SIM_CLOCK.now() == pytest.approx(2.0)
+    assert SIM_CLOCK.now() == pytest.approx(200 / (_MAX_LINEAR_MMPS * 0.5))
 
 
 def test_drive_for_inches_converts():
     dt = _make_drivetrain()
-    # 1 inch = 25.4 mm; at 100% = 25.4/200 s
+    # 1 inch = 25.4 mm; at 100% that distance takes 25.4 / (100% speed) s.
     dt.drive_for(FORWARD, 1, INCHES, velocity=100)
-    assert SIM_CLOCK.now() == pytest.approx(25.4 / 200.0)
+    assert SIM_CLOCK.now() == pytest.approx(25.4 / _MAX_LINEAR_MMPS)
 
 
 def test_drive_for_wait_false_does_not_advance():
@@ -97,7 +97,7 @@ def test_set_drive_velocity_changes_default():
     dt = _make_drivetrain()
     dt.set_drive_velocity(100, PERCENT)
     dt.drive_for(FORWARD, 200, MM)
-    assert SIM_CLOCK.now() == pytest.approx(1.0)
+    assert SIM_CLOCK.now() == pytest.approx(200 / _MAX_LINEAR_MMPS)
 
 
 def test_turn_for_advances_based_on_angle():

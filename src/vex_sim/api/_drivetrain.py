@@ -39,7 +39,7 @@ def _to_mm(distance: float, units: str) -> float:
 
 
 def _drive_seconds(distance: float, units: str, velocity_pct: float) -> float:
-    """100% velocity = 200 mm/s, scaled by velocity_pct."""
+    """Time to cover ``distance`` at ``velocity_pct``; 100% = _MAX_LINEAR_MMPS."""
     if velocity_pct <= 0:
         return 0.0
     mm = _to_mm(distance, units)

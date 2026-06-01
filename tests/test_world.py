@@ -18,7 +18,7 @@ from vex_sim.api import (
 )
 from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK
-from vex_sim.api._drivetrain import DriveTrain
+from vex_sim.api._drivetrain import _MAX_LINEAR_MMPS, DriveTrain
 from vex_sim.api._motor import Motor
 from vex_sim.world import WORLD, Pose, integrate_pose
 
@@ -98,9 +98,9 @@ def test_integrate_pose_arc_motion_returns_to_start_after_full_circle():
 
 def test_drive_for_advances_pose_along_heading():
     dt = _make_drivetrain()
-    # Start at origin facing +x. Drive 200 mm forward at 100% (200 mm/s) → 1s.
+    # Start at origin facing +x. Drive 200 mm forward at 100%.
     dt.drive_for(FORWARD, 200, MM, velocity=100)
-    assert SIM_CLOCK.now() == pytest.approx(1.0)
+    assert SIM_CLOCK.now() == pytest.approx(200 / _MAX_LINEAR_MMPS)
     assert WORLD.pose.x == pytest.approx(200.0)
     assert WORLD.pose.y == pytest.approx(0.0, abs=1e-9)
     assert WORLD.pose.theta == pytest.approx(0.0)
@@ -139,20 +139,23 @@ def test_turn_then_drive_chains_through_pose():
 
 def test_continuous_drive_then_wait_integrates_pose():
     dt = _make_drivetrain()
-    # 50% of 200 mm/s = 100 mm/s along +x.
+    # 50% speed along +x, integrated over 2 s.
+    speed_50 = _MAX_LINEAR_MMPS * 0.5
     dt.drive(FORWARD, 50)
     sleep(2.0)
-    assert WORLD.pose.x == pytest.approx(200.0)
+    assert WORLD.pose.x == pytest.approx(speed_50 * 2.0)
     assert SIM_CLOCK.now() == pytest.approx(2.0)
 
 
 def test_stop_halts_continuous_motion():
     dt = _make_drivetrain()
-    dt.drive(FORWARD, 50)  # 100 mm/s
+    speed_50 = _MAX_LINEAR_MMPS * 0.5
+    dt.drive(FORWARD, 50)
     sleep(1.0)
     dt.stop()
     sleep(2.0)
-    assert WORLD.pose.x == pytest.approx(100.0)
+    # Moved for 1 s before stopping; the later 2 s add nothing.
+    assert WORLD.pose.x == pytest.approx(speed_50 * 1.0)
 
 
 def test_drive_for_wait_false_does_not_move_pose():
@@ -169,8 +172,9 @@ def test_drive_for_wait_false_does_not_move_pose():
 
 def test_trajectory_records_segments():
     dt = _make_drivetrain()
-    dt.drive_for(FORWARD, 200, MM, velocity=100)  # 1s straight
-    dt.turn_for(LEFT, 90, DEGREES, velocity=100)  # 1s rotate
+    drive_secs = 200 / _MAX_LINEAR_MMPS  # 200 mm straight at 100%
+    dt.drive_for(FORWARD, 200, MM, velocity=100)
+    dt.turn_for(LEFT, 90, DEGREES, velocity=100)  # 1s rotate (90 deg/s)
     WORLD.finalize()
     # We expect at least the two motion segments. The drive_for/turn_for pairs
     # each emit one segment with the motion velocity, then close-on-stop adds
@@ -179,12 +183,12 @@ def test_trajectory_records_segments():
     assert len(motion_segments) >= 2
     drive_seg = motion_segments[0]
     assert drive_seg.t_start == pytest.approx(0.0)
-    assert drive_seg.t_end == pytest.approx(1.0)
+    assert drive_seg.t_end == pytest.approx(drive_secs)
     assert drive_seg.start_pose.x == pytest.approx(0.0)
     assert drive_seg.end_pose.x == pytest.approx(200.0)
     turn_seg = motion_segments[1]
-    assert turn_seg.t_start == pytest.approx(1.0)
-    assert turn_seg.t_end == pytest.approx(2.0)
+    assert turn_seg.t_start == pytest.approx(drive_secs)
+    assert turn_seg.t_end == pytest.approx(drive_secs + 1.0)
 
 
 def test_trajectory_empty_when_no_motion():
