@@ -35,10 +35,20 @@ uv run python -m vex_sim list --verbose      # show bundled playgrounds
 
 ## Running a student program
 
+A student program is either a plain `.py` file or — more conveniently — the
+`.exppython` project file that VEXcode EXP saves. Point the simulator straight
+at the `.exppython`; there is no need to copy-paste code into a `.py` file.
+
+> **`.exppython` files** are JSON. The runnable program lives in the
+> `textContent` field: the VEXcode-generated robot-configuration block followed
+> by the student's own code, exactly as it is flashed to the brain. The
+> simulator unwraps this automatically, and an error traceback points at the
+> right line of the embedded program. See `tests/empty.exppython` for the shape.
+
 Headless (default — no display, JSON result to stdout or a file):
 
 ```bash
-uv run python -m vex_sim run path/to/student.py --playground empty_room
+uv run python -m vex_sim run path/to/student.exppython --playground empty_room
 uv run python -m vex_sim run path/to/student.py --playground low_wall_maze --out result.json
 ```
 
@@ -120,7 +130,7 @@ uv run python -m vex_sim grade \
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--submissions PATH` | required | Directory of student `.py` files (or a single file). Files starting with `_` are skipped. |
+| `--submissions PATH` | required | Directory of student programs — `.py` and/or `.exppython` files (or a single file). Files starting with `_` are skipped. |
 | `--scenarios PATH` | required | Directory of playground `.json` files (or a single file). The bundled `playground.schema.json` is excluded. |
 | `--output PATH` | required | Output path. `.json` extension picks JSON; anything else (typically `.csv`) picks CSV. |
 | `--timeout SEC` | `60` | Wall-clock budget per (submission, scenario). The child process is killed past this, and a `wall_timeout` row is written. |

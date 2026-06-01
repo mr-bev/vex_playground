@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import io
 import random
-import runpy
 import sys
 import traceback
 from pathlib import Path
@@ -45,6 +44,7 @@ from vex_sim.controller_input import CONTROLLER_INPUT
 from vex_sim.scheduler import SCHEDULER
 from vex_sim.sensors_world import SENSOR_CACHE
 from vex_sim.stdout_capture import tee_stdout
+from vex_sim.student_source import run_student_program
 from vex_sim.world import WORLD, Playground
 
 _STDOUT_CAP = 64 * 1024
@@ -90,7 +90,7 @@ def _student_entrypoint(student_path: str | Path, captured: io.StringIO) -> None
     :meth:`SCHEDULER.advance_to_next_wait`.
     """
     with tee_stdout(captured):
-        runpy.run_path(str(student_path), run_name="__main__")
+        run_student_program(student_path)
 
 
 def _drive_headless() -> None:

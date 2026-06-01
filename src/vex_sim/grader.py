@@ -74,16 +74,18 @@ CSV_FIELDS: tuple[str, ...] = (
 
 
 def discover_submissions(path: Path) -> list[Path]:
-    """Return ``*.py`` files in ``path`` (or ``[path]`` if it's a file).
+    """Return student programs in ``path`` (or ``[path]`` if it's a file).
 
-    Files starting with ``_`` are skipped so ``__init__.py`` and the
-    like don't show up as submissions by accident.
+    Both plain ``*.py`` files and VEXcode EXP ``*.exppython`` project
+    files are picked up. Files starting with ``_`` are skipped so
+    ``__init__.py`` and the like don't show up as submissions by accident.
     """
     if path.is_file():
         return [path]
     if not path.is_dir():
         raise FileNotFoundError(f"submissions path does not exist: {path}")
-    return sorted(p for p in path.glob("*.py") if not p.name.startswith("_"))
+    found = (*path.glob("*.py"), *path.glob("*.exppython"))
+    return sorted(p for p in found if not p.name.startswith("_"))
 
 
 def discover_scenarios(path: Path) -> list[Path]:

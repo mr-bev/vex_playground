@@ -18,7 +18,6 @@ from __future__ import annotations
 import io
 import math
 import random
-import runpy
 import sys
 import traceback
 from pathlib import Path
@@ -32,6 +31,7 @@ from vex_sim.controller_input import CONTROLLER_INPUT, keyboard_to_axes_buttons
 from vex_sim.scheduler import SCHEDULER
 from vex_sim.sensors_world import SENSOR_CACHE
 from vex_sim.stdout_capture import tee_stdout
+from vex_sim.student_source import run_student_program
 from vex_sim.world import (
     DEFAULT_WALL_HEIGHT_MM,
     ROBOT_RADIUS_MM,
@@ -240,7 +240,7 @@ def _restore_shims(prior: tuple[Any, Any]) -> None:
 
 def _student_entrypoint(student_path: str | Path, captured: io.StringIO) -> None:
     with tee_stdout(captured):
-        runpy.run_path(str(student_path), run_name="__main__")
+        run_student_program(student_path)
 
 
 def _advance_until(target_t: float) -> None:

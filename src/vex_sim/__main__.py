@@ -30,7 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
             "behaviour, kept for back-compat)."
         ),
     )
-    run_p.add_argument("student_file", type=Path, help="Path to the student .py file.")
+    run_p.add_argument(
+        "student_file",
+        type=Path,
+        help="Path to the student program: a .py file or a VEXcode EXP .exppython project file.",
+    )
     run_p.add_argument(
         "--max-time",
         type=float,
@@ -95,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--submissions",
         required=True,
         type=Path,
-        help="Directory of student .py files (or a single .py file).",
+        help=("Directory of student programs (.py or .exppython), or a single " "such file."),
     )
     grade_p.add_argument(
         "--scenarios",
