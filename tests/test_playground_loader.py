@@ -33,6 +33,7 @@ BUNDLED_NAMES = {
     "low_wall_maze",
     "mixed_heights",
     "pickup_and_dropoff",
+    "sandbox",
 }
 
 
@@ -48,6 +49,19 @@ def test_bundled_playground_loads(name):
     assert pg.name == name
     assert pg.width > 0 and pg.height > 0
     assert pg.walls, "every bundled playground has at least one wall"
+
+
+def test_sandbox_is_free_run_with_robot_on_a_colour_tile():
+    """The sandbox is a run-and-observe bench: no success criteria (so the
+    CLI emits the raw call log instead of grading), and the robot starts
+    standing on a coloured tile so Optical.color() reports a real colour
+    rather than 'black'."""
+    pg = load_playground_file(PLAYGROUND_DIR / "sandbox.json")
+    assert pg.success_criteria is None, "sandbox must stay free-run (no goal)"
+    start = pg.start_pose
+    on_tile = [r for r in pg.floor_regions if r.contains(start.x, start.y)]
+    assert len(on_tile) == 1, "robot start must sit on exactly one floor tile"
+    assert on_tile[0].color != "black"
 
 
 def test_pickup_and_dropoff_has_named_zones_and_visit_sequence():

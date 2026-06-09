@@ -105,6 +105,24 @@ Drop a `*.json` file into `src/vex_sim/playground_files/` and it is discovered a
 | `low_wall_maze` | All interior walls are 30 mm low. Default-mounted distance sensor cannot see them — students must drop the mount or rely on bumpers. |
 | `mixed_heights` | Mix of low, mid, tall walls. Rewards a thoughtful `mount_height` choice. |
 | `pickup_and_dropoff` | Three coloured zones (green / red / blue). Read `Optical(port).color()` to confirm arrival at each. Visit-sequence success criteria. |
+| `sandbox` | Free-run test bench — **no** success criteria. The robot is parked on a coloured tile so `Optical(port).color()` reports a real colour immediately, with more tiles and the perimeter walls at known distances. Use it to exercise a sensor or screen output without a navigation goal (see below). |
+
+### Free-run mode: test a feature without a navigation goal
+
+Every playground in the table above *except* `sandbox` declares success criteria, so the CLI grades pass/fail and a program that never drives to the goal "fails" by timing out — which is the wrong tool for checking that, say, the optical sensor or the brain screen works.
+
+A playground with **no** `goal` key (like `sandbox`) runs in *free-run* mode instead: the program runs for the full `--max-time`, nothing can pass or fail, and the simulator emits the raw call log — every sensor read and every `brain.screen.print` — so you can see exactly what the robot's features reported.
+
+```bash
+# Watch the optical sensor and brain screen live (robot is parked on a red tile):
+uv run python -m vex_sim run examples/colour_detect.exppython --playground sandbox --render
+
+# Headless: dump the call log and pull out what reached the brain screen:
+uv run python -m vex_sim run examples/colour_detect.exppython --playground sandbox --max-time 2 \
+  | python -c "import sys,json; [print(e['args'][0]) for e in json.load(sys.stdin)['calls'] if e['obj']=='brain.screen' and e['method']=='print']"
+```
+
+A `status` of `timed_out` here is expected and benign — it just means an unbounded `while True:` loop ran for the whole time budget; there is no scenario to fail. To read a different tile, drive the robot in `--render` mode or edit `robot_start` in the playground JSON. (`Optical.hue()` and `Optical.brightness()` are currently stubbed to `0`; only `color()` is wired to the floor.)
 
 ### Sensor & API additions in Phase 4
 
