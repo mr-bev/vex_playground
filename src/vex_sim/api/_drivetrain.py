@@ -112,11 +112,17 @@ class DriveTrain(_Recorder):
     ) -> None:
         v = self._drive_velocity if velocity is None else velocity
         self._record("drive_for", (direction, distance, units, v, units_v, wait))
+        duration = _drive_seconds(distance, units, v)
+        linear = _drive_velocity_mmps(direction, v)
         if wait:
-            duration = _drive_seconds(distance, units, v)
-            _world.WORLD.set_velocity(_drive_velocity_mmps(direction, v), 0.0)
+            _world.WORLD.set_velocity(linear, 0.0)
             _SCHEDULER.yield_for(SIM_CLOCK.now() + duration)
             _world.WORLD.stop()
+        else:
+            # Non-blocking: start the move and return immediately. The world
+            # stops the robot on its own once the distance has been covered,
+            # even though the student's code has already moved on.
+            _world.WORLD.start_timed_motion(linear, 0.0, duration)
 
     def turn(
         self, direction: str, velocity: float | None = None, units: str = VelocityUnits.PERCENT
@@ -136,11 +142,14 @@ class DriveTrain(_Recorder):
     ) -> None:
         v = self._turn_velocity if velocity is None else velocity
         self._record("turn_for", (direction, angle, units, v, units_v, wait))
+        duration = _turn_seconds(angle, units, v)
+        angular = _turn_velocity_radps(direction, v)
         if wait:
-            duration = _turn_seconds(angle, units, v)
-            _world.WORLD.set_velocity(0.0, _turn_velocity_radps(direction, v))
+            _world.WORLD.set_velocity(0.0, angular)
             _SCHEDULER.yield_for(SIM_CLOCK.now() + duration)
             _world.WORLD.stop()
+        else:
+            _world.WORLD.start_timed_motion(0.0, angular, duration)
 
     def turn_to_heading(
         self,
@@ -208,11 +217,11 @@ class DriveTrain(_Recorder):
 
     def is_done(self) -> bool:
         self._record("is_done")
-        return True
+        return not _world.WORLD.is_motion_pending()
 
     def is_moving(self) -> bool:
         self._record("is_moving")
-        return False
+        return _world.WORLD.is_motion_pending()
 
     def heading(self, units: str = RotationUnits.DEG) -> float:
         self._record("heading", (units,))

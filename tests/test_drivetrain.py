@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from vex_sim.api import (
@@ -17,6 +19,7 @@ from vex_sim.api._calllog import CALL_LOG
 from vex_sim.api._clock import SIM_CLOCK
 from vex_sim.api._drivetrain import _MAX_LINEAR_MMPS, DriveTrain, SmartDrive
 from vex_sim.api._motor import Motor
+from vex_sim.world import WORLD
 
 
 @pytest.fixture(autouse=True)
@@ -24,10 +27,14 @@ def _isolated_state():
     SIM_CLOCK.reset()
     SIM_CLOCK.set_max_time(None)
     CALL_LOG.clear()
+    # WORLD is a process-global singleton; reset it so motion state (pose,
+    # and a pending non-blocking auto-stop) can't leak between tests.
+    WORLD.reset()
     yield
     SIM_CLOCK.reset()
     SIM_CLOCK.set_max_time(None)
     CALL_LOG.clear()
+    WORLD.reset()
 
 
 def _make_drivetrain() -> DriveTrain:
@@ -145,3 +152,112 @@ def test_stop_with_no_arg_records_no_args():
     e = CALL_LOG.entries()[0]
     assert e["method"] == "stop"
     assert e["args"] == []
+
+
+# --------------------------------------------------------------------------
+# Non-blocking motion (wait=False)
+#
+# A wait=False drive_for/turn_for must return immediately *and* actually move
+# the robot: it starts the motion and the world stops it once the commanded
+# distance/angle is covered, however coarsely the clock is later advanced.
+# (Regression: the wait=False branch used to be unimplemented, so the robot
+# never moved at all.)
+# --------------------------------------------------------------------------
+
+
+def test_drive_for_nonblocking_returns_without_advancing_clock():
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 200, MM, velocity=100, wait=False)
+    assert SIM_CLOCK.now() == 0.0  # did not block
+    assert WORLD.is_motion_pending() is True
+
+
+def test_drive_for_nonblocking_moves_and_auto_stops_after_one_big_jump():
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 200, MM, velocity=100, wait=False)
+    # 200 mm at 600 mm/s finishes in 0.333 s; jump far past that in one go.
+    SIM_CLOCK.advance(5.0)
+    assert WORLD.pose.x == pytest.approx(200.0)
+    assert WORLD.pose.y == pytest.approx(0.0)
+    assert WORLD.is_motion_pending() is False
+
+
+def test_drive_for_nonblocking_stops_at_exact_distance_over_many_steps():
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 150, MM, velocity=50, wait=False)  # 150 / 300 = 0.5 s
+    for _ in range(10):
+        SIM_CLOCK.advance(0.1)  # 1.0 s total, well past the 0.5 s move
+    assert WORLD.pose.x == pytest.approx(150.0)
+    assert WORLD.is_motion_pending() is False
+
+
+def test_is_moving_tracks_nonblocking_move_progress():
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 600, MM, velocity=100, wait=False)  # 1.0 s
+    SIM_CLOCK.advance(0.4)
+    assert dt.is_moving() is True
+    assert dt.is_done() is False
+    SIM_CLOCK.advance(1.0)  # cross the 1.0 s deadline
+    assert dt.is_moving() is False
+    assert dt.is_done() is True
+    assert WORLD.pose.x == pytest.approx(600.0)
+
+
+def test_new_command_supersedes_pending_nonblocking_move():
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 600, MM, velocity=100, wait=False)
+    SIM_CLOCK.advance(0.1)  # 60 mm so far
+    assert WORLD.pose.x == pytest.approx(60.0)
+    dt.stop()  # cancels the pending auto-stop, keeps the distance travelled
+    assert WORLD.is_motion_pending() is False
+    SIM_CLOCK.advance(5.0)
+    assert WORLD.pose.x == pytest.approx(60.0)
+
+
+def test_turn_for_nonblocking_rotates_and_auto_stops():
+    dt = _make_drivetrain()
+    dt.turn_for(LEFT, 90, DEGREES, velocity=100, wait=False)  # 90 deg/s -> 1.0 s
+    SIM_CLOCK.advance(5.0)
+    assert WORLD.pose.theta == pytest.approx(math.radians(90))
+    assert WORLD.is_motion_pending() is False
+
+
+def test_nonblocking_drive_completes_end_to_end_via_runner(tmp_path):
+    """The reported case: a program whose only motion is a wait=False
+    drive_for. The runner must settle the pending move so the robot ends
+    where it was sent rather than frozen at the start."""
+    from vex_sim.runner import run
+
+    prog = tmp_path / "robot.py"
+    prog.write_text(
+        "from vex import *\n"
+        "brain = Brain()\n"
+        "lm = Motor(Ports.PORT6, False)\n"
+        "rm = Motor(Ports.PORT10, True)\n"
+        "dt = DriveTrain(lm, rm, 259.34, 320, 40, MM, 1)\n"
+        "dt.drive_for(FORWARD, 200, MM, velocity=100, wait=False)\n"
+    )
+    result = run(prog, max_time=10.0)
+    assert result["status"] == "completed"
+    assert WORLD.pose.x == pytest.approx(200.0)
+
+
+def test_nonblocking_drive_finishes_during_is_moving_poll_loop(tmp_path):
+    """The intended use of wait=False: kick off a move, then poll is_moving
+    while doing other work. The robot should travel the full distance."""
+    from vex_sim.runner import run
+
+    prog = tmp_path / "robot.py"
+    prog.write_text(
+        "from vex import *\n"
+        "brain = Brain()\n"
+        "lm = Motor(Ports.PORT6, False)\n"
+        "rm = Motor(Ports.PORT10, True)\n"
+        "dt = DriveTrain(lm, rm, 259.34, 320, 40, MM, 1)\n"
+        "dt.drive_for(FORWARD, 200, MM, velocity=100, wait=False)\n"
+        "while dt.is_moving():\n"
+        "    wait(20, MSEC)\n"
+    )
+    result = run(prog, max_time=10.0)
+    assert result["status"] == "completed"
+    assert WORLD.pose.x == pytest.approx(200.0)

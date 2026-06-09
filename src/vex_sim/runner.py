@@ -104,6 +104,10 @@ def _drive_headless() -> None:
     while SCHEDULER.advance_to_next_wait():
         dt = max(0.0, SCHEDULER.pending_deadline - SIM_CLOCK.now())
         SIM_CLOCK.advance(dt)
+    # The student may have finished while a non-blocking drive_for/turn_for
+    # was still in flight; advance just enough to complete it so the robot
+    # ends where it was sent (capped at max_time inside settle()).
+    WORLD.settle()
 
 
 def run(

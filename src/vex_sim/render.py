@@ -421,6 +421,11 @@ def run_live(
         if not SCHEDULER.done and running is False and status == "completed":
             status = "interrupted"
     finally:
+        # If the student finished mid-move (non-blocking drive_for/turn_for),
+        # let it complete so the final pose matches where it was sent. Skipped
+        # on interrupt, where the student greenlet is still suspended.
+        if SCHEDULER.done:
+            WORLD.settle()
         SCHEDULER.kill()
         _restore_shims(prior_modules)
         SIM_CLOCK.set_max_time(None)

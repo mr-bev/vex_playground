@@ -297,6 +297,11 @@ class World:
     _segment_start_time: float = 0.0
     _segment_start_pose: Pose = field(default_factory=Pose)
     _last_zone: str | None = None
+    #: Absolute sim time at which an in-flight non-blocking move
+    #: (drive_for/turn_for with wait=False) auto-stops, or None when none is
+    #: pending. Honoured by :meth:`integrate`; cleared by any explicit
+    #: velocity command via :meth:`set_velocity`.
+    _auto_stop_at: float | None = None
 
     def reset(self, playground: Playground | None = None) -> None:
         self.playground = playground
@@ -310,6 +315,7 @@ class World:
         self._segment_start_time = SIM_CLOCK.now()
         self._segment_start_pose = self.pose.copy()
         self._last_zone = None
+        self._auto_stop_at = None
         # Robot may already be standing inside a zone at start_pose; pick
         # that up immediately so visit_sequence checks see the start zone.
         self._record_zone_at(self.pose.x, self.pose.y)
@@ -319,12 +325,75 @@ class World:
         self._close_segment()
         self.linear_v = float(linear_mmps)
         self.angular_v = float(angular_radps)
+        # Any explicit velocity command supersedes a pending non-blocking
+        # move's auto-stop (drive_for/turn_for with wait=False).
+        self._auto_stop_at = None
 
     def stop(self) -> None:
         self.set_velocity(0.0, 0.0)
 
+    def start_timed_motion(self, linear_mmps: float, angular_radps: float, duration: float) -> None:
+        """Begin a non-blocking move that stops itself after ``duration``
+        sim seconds. Backs ``drive_for``/``turn_for`` with ``wait=False``:
+        the velocity is applied now and cleared automatically once the
+        commanded distance/angle has been covered, even though the
+        student's code has already returned from the call.
+        """
+        if duration <= 0:
+            self.stop()
+            return
+        self.set_velocity(linear_mmps, angular_radps)  # clears any prior auto-stop
+        self._auto_stop_at = SIM_CLOCK.now() + duration
+
+    def is_motion_pending(self) -> bool:
+        """True while a non-blocking ``drive_for``/``turn_for`` is still
+        running. Backs ``DriveTrain.is_moving`` / ``is_done``."""
+        return self._auto_stop_at is not None
+
+    def settle(self) -> None:
+        """Advance sim time just enough to finish a non-blocking move the
+        student started but never waited on, so the robot ends where it was
+        sent. Capped at the clock's ``max_time`` so it can't trip the
+        timeout. No-op when nothing is pending.
+        """
+        deadline = self._auto_stop_at
+        if deadline is None:
+            return
+        cap = SIM_CLOCK.get_max_time()
+        if cap is not None:
+            deadline = min(deadline, cap)
+        dt = deadline - SIM_CLOCK.now()
+        if dt > 0:
+            SIM_CLOCK.advance(dt)
+
     def integrate(self, dt: float) -> None:
-        """SIM_CLOCK advance listener: integrate pose using current velocities.
+        """SIM_CLOCK advance listener. Splits the interval at a pending
+        non-blocking move's auto-stop, then integrates each part.
+
+        A ``drive_for(..., wait=False)`` applies a velocity now and records a
+        stop deadline in :attr:`_auto_stop_at`; the student's later waits may
+        then advance the clock past that deadline in one large jump. If the
+        deadline lands inside this ``dt``, move at the commanded velocity up
+        to it, halt exactly there, and integrate the remainder stationary --
+        so the robot covers the commanded distance and no more, regardless of
+        how coarsely time advances.
+        """
+        if dt <= 0:
+            return
+        stop_at = self._auto_stop_at
+        if stop_at is not None and stop_at <= SIM_CLOCK.now() + dt:
+            first = max(0.0, stop_at - SIM_CLOCK.now())
+            self._advance_constant(first)
+            self._auto_stop_at = None
+            self._mark_segment_boundary(stop_at)
+            self.linear_v = 0.0
+            self.angular_v = 0.0
+            self._advance_constant(dt - first)
+        else:
+            self._advance_constant(dt)
+
+    def _advance_constant(self, dt: float) -> None:
+        """Integrate pose forward by ``dt`` at the current constant velocity.
 
         Wall collision policy (Phase 3, intentionally simple):
 
@@ -407,7 +476,14 @@ class World:
                 self.visited_zones.append(current)
 
     def _close_segment(self) -> None:
-        now = SIM_CLOCK.now()
+        self._mark_segment_boundary(SIM_CLOCK.now())
+
+    def _mark_segment_boundary(self, now: float) -> None:
+        """Close the open trajectory segment at sim time ``now`` and start a
+        fresh one from the current pose. ``now`` is passed explicitly rather
+        than read from the clock so :meth:`integrate` can place a boundary at
+        a non-blocking move's auto-stop, which falls *inside* an advance
+        interval -- before the clock has ticked to its new value."""
         if now > self._segment_start_time:
             self.trajectory.append(
                 TrajectorySegment(
