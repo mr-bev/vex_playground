@@ -31,6 +31,16 @@ import vex_sim.world as _world
 _MAX_LINEAR_MMPS = 600.0
 _MAX_ANGULAR_RADPS = math.radians(90.0)
 
+# Sim-time advanced per is_moving()/is_done() probe while a non-blocking move
+# (drive_for/turn_for with wait=False) is still running. Student code almost
+# always polls such a move with a bare `while drivetrain.is_moving(): ...`
+# loop that has no wait() of its own. In this cooperative scheduler time only
+# advances when the program yields, so without this that loop would spin
+# forever and the robot would never move. Letting the probe itself nudge time
+# forward keeps the loop cooperative: the robot drives, sensors refresh, and
+# the loop exits when the move completes -- no wait() required.
+_POLL_STEP_SECONDS = 0.01
+
 
 def _to_mm(distance: float, units: str) -> float:
     if units == DistanceUnits.IN or units == DistanceUnits.INCHES:
@@ -217,10 +227,14 @@ class DriveTrain(_Recorder):
 
     def is_done(self) -> bool:
         self._record("is_done")
+        if _world.WORLD.is_motion_pending():
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + _POLL_STEP_SECONDS)
         return not _world.WORLD.is_motion_pending()
 
     def is_moving(self) -> bool:
         self._record("is_moving")
+        if _world.WORLD.is_motion_pending():
+            _SCHEDULER.yield_for(SIM_CLOCK.now() + _POLL_STEP_SECONDS)
         return _world.WORLD.is_motion_pending()
 
     def heading(self, units: str = RotationUnits.DEG) -> float:

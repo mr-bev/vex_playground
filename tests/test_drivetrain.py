@@ -242,6 +242,44 @@ def test_nonblocking_drive_completes_end_to_end_via_runner(tmp_path):
     assert WORLD.pose.x == pytest.approx(200.0)
 
 
+def test_is_moving_advances_clock_while_move_pending():
+    dt = _make_drivetrain()
+    dt.drive_for(FORWARD, 600, MM, velocity=100, wait=False)
+    t0 = SIM_CLOCK.now()
+    assert dt.is_moving() is True
+    assert SIM_CLOCK.now() > t0  # the probe nudged sim time forward
+
+
+def test_is_moving_does_not_advance_clock_when_idle():
+    dt = _make_drivetrain()
+    t0 = SIM_CLOCK.now()
+    assert dt.is_moving() is False
+    assert SIM_CLOCK.now() == t0  # no move pending -> no nudge
+
+
+def test_bare_is_moving_poll_loop_does_not_hang(tmp_path):
+    """The reported failure: a `while drivetrain.is_moving(): ...` loop with
+    no wait() of its own. It must complete (the probe advances sim time)
+    rather than spin forever freezing the simulator."""
+    from vex_sim.runner import run
+
+    prog = tmp_path / "robot.py"
+    prog.write_text(
+        "from vex import *\n"
+        "brain = Brain()\n"
+        "lm = Motor(Ports.PORT6, False); rm = Motor(Ports.PORT10, True)\n"
+        "dt = DriveTrain(lm, rm, 259.34, 320, 40, MM, 1)\n"
+        "dt.drive_for(FORWARD, 300, MM, velocity=100, wait=False)\n"
+        "ticks = 0\n"
+        "while dt.is_moving():\n"  # no wait() inside -- used to hang
+        "    ticks += 1\n"
+        "brain.screen.print(ticks)\n"
+    )
+    result = run(prog, max_time=10.0)
+    assert result["status"] == "completed"
+    assert WORLD.pose.x == pytest.approx(300.0)
+
+
 def test_nonblocking_drive_finishes_during_is_moving_poll_loop(tmp_path):
     """The intended use of wait=False: kick off a move, then poll is_moving
     while doing other work. The robot should travel the full distance."""
